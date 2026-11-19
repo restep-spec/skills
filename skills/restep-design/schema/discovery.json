@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://restep.wubytes.com/1/schema/discovery.json",
+  "title": "Restep 1 discovery document",
+  "description": "The document a GET on the API root returns (section 4.2). Servers MAY add members; clients ignore what they do not know.",
+  "type": "object",
+  "required": ["restep"],
+  "properties": {
+    "restep": { "type": "string", "pattern": "^1\\.[0-9]+$", "description": "Full Restep version, such as 1.0 (1.1)." },
+    "version": { "type": "string", "pattern": "^[1-9][0-9]*$", "description": "Major version of this API, the n in /vn/ (5.5)." },
+    "profiles": {
+      "type": "array", "uniqueItems": true,
+      "items": { "type": "string", "examples": ["core", "query", "writes", "relations", "sync"] }
+    },
+    "extensions": {
+      "type": "array", "uniqueItems": true,
+      "items": { "type": "string", "examples": ["actions", "batch", "filter-expr", "query-method"] }
+    },
+    "batch": {
+      "type": "object", "required": ["path"],
+      "properties": {
+        "path": { "$ref": "#/$defs/path" },
+        "max_operations": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "idempotency": {
+      "type": "object",
+      "properties": { "ttl": { "type": "integer", "minimum": 86400, "description": "Seconds a key is kept (7.1)." } }
+    },
+    "events": { "$ref": "#/$defs/path", "description": "Server-Sent Events path (9)." },
+    "collections": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/collection" }
+    },
+    "deprecations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/deprecation" },
+      "description": "Deprecations of a version or a collection (5.5)."
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "profiles": { "contains": { "const": "sync" } } }, "required": ["profiles"] },
+      "then": { "properties": { "profiles": { "contains": { "const": "query" } } } }
+    },
+    {
+      "if": { "properties": { "extensions": { "contains": { "enum": ["filter-expr", "query-method"] } } }, "required": ["extensions"] },
+      "then": { "required": ["profiles"], "properties": { "profiles": { "contains": { "const": "query" } } } }
+    },
+    {
+      "if": { "properties": { "extensions": { "contains": { "const": "batch" } } }, "required": ["extensions"] },
+      "then": { "required": ["batch"] }
+    }
+  ],
+  "$defs": {
+    "path": {
+      "type": "string", "pattern": "^/",
+      "description": "A path relative to the API root, starting with /. A collection path MAY be a URI template (RFC 6570)."
+    },
+    "name": { "type": "string", "pattern": "^[^_]", "description": "Members starting with _ are reserved for Restep (3)." },
+    "type": { "enum": ["string", "integer", "number", "decimal", "boolean", "date", "datetime", "duration", "enum"] },
+    "op": { "enum": ["eq", "ne", "lt", "le", "gt", "ge", "in", "null"] },
+    "filter": {
+      "type": "object", "required": ["type", "ops"],
+      "properties": {
+        "type": { "$ref": "#/$defs/type" },
+        "values": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "ops": { "type": "array", "items": { "$ref": "#/$defs/op" }, "minItems": 1, "uniqueItems": true }
+      },
+      "allOf": [
+        { "if": { "properties": { "type": { "const": "enum" } } }, "then": { "required": ["values"] } },
+        { "if": { "properties": { "type": { "const": "boolean" } } },
+          "then": { "properties": { "ops": { "items": { "enum": ["eq", "ne", "null"] } } } } }
+      ]
+    },
+    "relation": {
+      "type": "object", "required": ["to"],
+      "properties": {
+        "to": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" }, "minItems": 2 }] },
+        "many": { "type": "boolean" },
+        "include": { "type": "boolean" },
+        "path": { "$ref": "#/$defs/path" }
+      }
+    },
+    "action": {
+      "type": "object", "required": ["on", "safe", "idempotent"],
+      "properties": {
+        "on": { "enum": ["item", "collection"] },
+        "safe": { "type": "boolean" },
+        "idempotent": { "type": "boolean" }
+      }
+    },
+    "deprecation": {
+      "type": "object", "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["version", "collection", "field", "filter", "sort", "relation", "action"] },
+        "name": { "type": "string" },
+        "sunset": { "type": "string", "format": "date-time" }
+      },
+      "if": { "properties": { "kind": { "not": { "const": "version" } } } },
+      "then": { "required": ["name"] }
+    },
+    "collection": {
+      "type": "object", "required": ["path"],
+      "properties": {
+        "path": { "$ref": "#/$defs/path" },
+        "filter": {
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/name" },
+          "additionalProperties": { "$ref": "#/$defs/filter" }
+        },
+        "sort": { "type": "array", "items": { "$ref": "#/$defs/name" }, "uniqueItems": true },
+        "max_limit": { "type": "integer", "minimum": 1 },
+        "count": { "enum": ["exact", "estimated"] },
+        "relations": {
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/name" },
+          "additionalProperties": { "$ref": "#/$defs/relation" }
+        },
+        "include_depth": { "type": "integer", "minimum": 1 },
+        "sync": {
+          "type": "object",
+          "properties": { "retention": { "type": "integer", "minimum": 0, "description": "Seconds changes are kept (9)." } }
+        },
+        "actions": {
+          "type": "object",
+          "propertyNames": { "pattern": "^(?!changes$)[a-z][a-z0-9_]*$" },
+          "additionalProperties": { "$ref": "#/$defs/action" }
+        },
+        "deprecations": { "type": "array", "items": { "$ref": "#/$defs/deprecation" } }
+      },
+      "if": { "required": ["sync"] },
+      "then": {
+        "required": ["filter"],
+        "properties": { "filter": { "required": ["id"], "properties": { "id": { "properties": { "ops": { "contains": { "const": "in" } } } } } } }
+      }
+    }
+  }
+}

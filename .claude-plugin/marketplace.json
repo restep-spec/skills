@@ -1,0 +1,15 @@
+{
+  "name": "restep",
+  "owner": {
+    "name": "Restep"
+  },
+  "description": "Agent skills for Restep (REST level 2½).",
+  "plugins": [
+    {
+      "name": "restep",
+      "source": "./",
+      "description": "Skills to build and review HTTP JSON APIs that follow Restep (REST level 2½).",
+      "version": "1.0.0"
+    }
+  ]
+}
