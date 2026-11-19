@@ -5,7 +5,7 @@ description: Build an HTTP JSON API, or change an existing one, so it follows Re
 
 # Building a Restep API
 
-Restep is a profile for HTTP JSON APIs at Richardson level 2. It is split into profiles a server adopts one at a time and announces: `core` (required), then `query`, `writes`, `relations` and `sync`, plus the extensions `actions`, `batch`, `filter-expr` and `query-method`.
+Restep is a profile for HTTP JSON APIs at Richardson level 2. It is split into profiles a server adopts one at a time and announces: `core` (required), then `query`, `writes`, `relations` and `sync`, plus the extensions `actions`, `batch`, `filter-expr`, `query-method` and `oauth`.
 
 The specification is `spec.md`, next to this file. It is the source of truth: when a rule below and the specification disagree, the specification wins. With network access, https://restep.wubytes.com/1/spec.md is the latest version; without it, the copy here is enough.
 
@@ -31,6 +31,8 @@ The specification is `spec.md`, next to this file. It is the source of truth: wh
 - An item lives at its collection's path + `/` + its `id`. The server assigns `id`: a non-empty string of unreserved URI characters. A `POST` with `id`, or a `PATCH` changing it, → `422 invalid`. Writes ignore members starting with `_`.
 - A number that needs exact decimal arithmetic (money, hours like `"1.5"`) or may exceed ±(2^53−1) is a string in every representation, declared as `decimal`. Instants are RFC 3339 with an offset.
 - `GET` on the API root returns the discovery document (section 4.2); every response carries one `Link: <https://restep.wubytes.com/1/core>; rel="profile"` per profile and extension.
+- Errors carry a `detail` that says how to fix the request; `invalid_parameter` and `unsupported_parameter` name the parameter in `parameter`.
+- So that agents and other generic clients can use the API without trying it (section 4.3), declare per collection `methods` and `item_methods` (they must match the `Allow` of every `405`), a one-sentence `description`, and `schemas` with JSON Schemas for `create` and `update` (a body they reject → `422 invalid`). Optional, but worth it whenever an agent may call the API.
 
 **query**
 - Declare in discovery every filterable field with its type and operators, every sort key, and `max_limit`. Anything undeclared → `unsupported_parameter`; a declared one with a bad value → `invalid_parameter`.

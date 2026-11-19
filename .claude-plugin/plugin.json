@@ -1,7 +1,7 @@
 {
   "name": "restep",
   "description": "Skills to build and review HTTP JSON APIs that follow Restep (REST level 2½).",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "homepage": "https://restep.wubytes.com/",
   "repository": "https://github.com/restep-spec/skills",
   "author": {

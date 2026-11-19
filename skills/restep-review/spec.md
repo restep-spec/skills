@@ -5,7 +5,7 @@
 
 ## 1. Status and scope
 
-**Draft 3**, 19 November 2026 (draft 2: 19 November 2026; draft 1: 12 November 2026). It may change without notice until version 1.0 is published.
+**Draft 4**, 19 November 2026 (draft 3 and draft 2: 19 November 2026; draft 1: 12 November 2026). It may change without notice until version 1.0 is published.
 
 URI of this version: `https://restep.wubytes.com/1/`
 
@@ -15,7 +15,7 @@ Also as a single Markdown file, for agents and for diffing: [`spec.md`](https://
 
 Restep is a profile for HTTP APIs that exchange JSON and are organised around resources: level 2 of the Richardson Maturity Model. It settles what that level leaves open (the shape of collections and errors, querying, safe writes, relationships and sync) and splits it into five **profiles** that are adopted one at a time, plus optional **extensions**.
 
-Out of scope: authentication (OAuth 2 or OpenID Connect is recommended), each API’s domain design, and anything below HTTP. Restep requires no schema and no code generator: a `core` server can be written by hand.
+Out of scope: authentication and authorization (OAuth 2.0 is recommended, with OpenID Connect where the API needs the user’s identity; the [`oauth`](https://restep.wubytes.com/1/#oauth) extension says where a client gets a token), each API’s domain design, and anything below HTTP. Restep requires no schema and no code generator: a `core` server can be written by hand.
 
 ### 1.1 Restep versions
 
@@ -34,31 +34,32 @@ Each profile only adds requirements; none changes the type or meaning of what an
 | `core` | Nothing; every Restep API implements it |
 | `query`, `writes`, `relations` | `core` |
 | `sync` | `core` and `query` (to fetch changed items by `id`) |
-| `actions`, `batch` | `core` |
+| `actions`, `batch`, `oauth` | `core` |
 | `filter-expr`, `query-method` | `query` |
 
 A server MUST NOT announce a profile or extension without the ones it requires.
 
 ## 2. Terms
 
-The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be interpreted as described in RFC 2119 and RFC 8174 when, and only when, they appear in all capitals. Every requirement of this specification carries one of them; sentences without them explain or give examples.
+The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be interpreted as described in [**RFC 2119**](https://www.rfc-editor.org/rfc/rfc2119) and [**RFC 8174**](https://www.rfc-editor.org/rfc/rfc8174) when, and only when, they appear in all capitals. Every requirement of this specification carries one of them; sentences without them explain or give examples.
 
-- **API root**: the base URL a client is configured with, such as `https://api.example.com/` or `https://example.com/api/`. Paths in this specification and in the `path` members of discovery and batch, such as `/books`, are relative to it: under `https://example.com/api/`, `/books` means `https://example.com/api/books`. Links in bodies and headers are not: they are URI references (RFC 3986) resolved against the request URL.
+- **API root**: the base URL a client is configured with, such as `https://api.example.com/` or `https://example.com/api/`. Paths in this specification and in the `path` members of discovery and batch, such as `/books`, are relative to it: under `https://example.com/api/`, `/books` means `https://example.com/api/books`. Links in bodies and headers are not: they are URI references ([**RFC 3986**](https://www.rfc-editor.org/rfc/rfc3986)) resolved against the request URL.
 - **Collection**: a resource grouping items of the same type, such as `/books`.
 - **Item**: a resource in a collection, such as `/books/7`.
 - **Profile**: a named set of requirements (`core`, `query`…) with its own URI.
 - **Reserved parameter**: a query parameter whose meaning Restep defines ([section 5.3](https://restep.wubytes.com/1/#reserved)).
+- **Principal**: who a request acts for, as the server authenticates it (in OAuth 2.0, the client and, if there is one, the user). It is not the credential: a request with a renewed token comes from the same principal.
 - **Capability**: something a resource declares in discovery (a filter, an operator, a sort key, a relationship, an action).
 
 ## 3. Data
 
-- Bodies MUST be JSON (RFC 8259) encoded as UTF-8. The exceptions are responses without a body (`204`, `304`, `HEAD`) and the event stream of [`sync`](https://restep.wubytes.com/1/#sync).
+- Bodies MUST be JSON ([**RFC 8259**](https://www.rfc-editor.org/rfc/rfc8259)) encoded as UTF-8. The exceptions are responses without a body (`204`, `304`, `HEAD`) and the event stream of [`sync`](https://restep.wubytes.com/1/#sync).
 - Field names defined by Restep are `snake_case`. Each API chooses its own, but SHOULD stick to one convention.
 - Member names starting with `_` are reserved for Restep (such as `_actions`, `_etag`). An API MUST NOT define fields with that prefix.
-- An item’s identifier is called `id`. It MUST be a non-empty string made only of RFC 3986 unreserved characters (`A–Z a–z 0–9 - . _ ~`), so it can go into a path without escaping, and MUST NOT be `.` or `..`, which URI resolution would remove. It MUST NOT change.
+- An item’s identifier is called `id`. It MUST be a non-empty string made only of [**RFC 3986**](https://www.rfc-editor.org/rfc/rfc3986) unreserved characters (`A–Z a–z 0–9 - . _ ~`), so it can go into a path without escaping, and MUST NOT be `.` or `..`, which URI resolution would remove. It MUST NOT change.
 - A field whose values may fall outside ±(2^53−1), or that needs exact decimal arithmetic (amounts of money), MUST be a string in every representation, whatever the value: `"price": "18.50"`. An amount of money SHOULD come with its ISO 4217 currency.
-- Instants MUST follow RFC 3339 `date-time` with an offset: `"2026-11-12T09:30:00Z"`. Calendar dates MUST use `full-date`: `"1987-03-14"`. Durations SHOULD be ISO 8601 (`"PT90S"`); a field holding seconds as a number SHOULD end in `_seconds`.
-- Absent and `null` are different. On reads, a field with no value MAY be omitted or set to `null`; in a `PATCH`, `null` deletes and absent leaves untouched (RFC 7396).
+- Instants MUST follow [**RFC 3339**](https://www.rfc-editor.org/rfc/rfc3339) `date-time` with an offset: `"2026-11-12T09:30:00Z"`. Calendar dates MUST use `full-date`: `"1987-03-14"`. Durations SHOULD be ISO 8601 (`"PT90S"`); a field holding seconds as a number SHOULD end in `_seconds`.
+- Absent and `null` are different. On reads, a field with no value MAY be omitted or set to `null`; in a `PATCH`, `null` deletes and absent leaves untouched ([**RFC 7396**](https://www.rfc-editor.org/rfc/rfc7396)).
 - A **relationship**, when a representation includes one, MUST be an object with at least `id` (to-one), a list of such objects (to-many), `null` (an empty to-one) or `[]` (an empty to-many). Never a bare identifier, so the field’s type does not change when the related item is included ([section 8](https://restep.wubytes.com/1/#relations)). When a relationship can point to more than one collection, each object MUST also carry `type` with the target collection’s name.
 - Links in bodies (`next`, `href`) MUST be absolute URIs or absolute paths, starting with `/` and including the API root’s path (`/api/books?cursor=…`), so a colon inside a segment (`/orders/2001:cancel`) is never read as a scheme, as it would be in the relative reference `2001:cancel`.
 - Clients MUST ignore fields they do not know and tolerate new enum values.
@@ -67,7 +68,7 @@ The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be interpreted a
 
 ### 4.1 Profile header
 
-Every API response SHOULD carry one `rel="profile"` link (RFC 6906) per implemented profile and extension. A profile’s URI is the version URI followed by its name:
+Every API response SHOULD carry one `rel="profile"` link ([**RFC 6906**](https://www.rfc-editor.org/rfc/rfc6906)) per implemented profile and extension. A profile’s URI is the version URI followed by its name:
 
 ```
 Link: <https://restep.wubytes.com/1/core>; rel="profile",
@@ -78,7 +79,7 @@ Profiles apply to the whole API. Which collection supports what is said only by 
 
 ### 4.2 Discovery document
 
-A `GET` on the API root returns a document stating the server’s profiles, extensions and capabilities. A `core`-only server SHOULD serve it; a server that announces any other profile or extension MUST serve it. A server whose root is taken MAY serve it elsewhere and point to it from its responses with `Link: <…>; rel="service-desc"` (RFC 8631).
+A `GET` on the API root returns a document stating the server’s profiles, extensions and capabilities. A `core`-only server SHOULD serve it; a server that announces any other profile or extension MUST serve it. A server whose root is taken MAY serve it elsewhere and point to it from its responses with `Link: <…>; rel="service-desc"` ([**RFC 8631**](https://www.rfc-editor.org/rfc/rfc8631)). A response MAY carry several `service-desc` links, such as one to an OpenAPI document; the one to the discovery document SHOULD carry `type="application/json"`, and clients MUST use the first target that is a discovery document.
 
 Clients MUST treat a response as a discovery document only if it is a JSON object with a string member `restep`. Without one, clients MUST assume `core` only. If the `Link` header and the document disagree, the document prevails.
 
@@ -93,6 +94,10 @@ Clients MUST treat a response as a discovery document only if it is a JSON objec
   "collections": {
     "books": {
       "path": "/books",
+      "description": "Books in the catalogue, one per edition.",
+      "methods": ["GET", "POST"],
+      "item_methods": ["GET", "PATCH", "DELETE"],
+      "schemas": { "create": "/schemas/book-create.json", "update": "/schemas/book-update.json" },
       "filter": {
         "id":        { "type": "string",  "ops": ["eq", "in"] },
         "price":     { "type": "decimal", "ops": ["eq", "lt", "le", "gt", "ge"] },
@@ -107,13 +112,35 @@ Clients MUST treat a response as a discovery document only if it is a JSON objec
         "reviews": { "to": "reviews", "many": true, "path": "/books/{id}/reviews" } },
       "include_depth": 2,
       "sync": { "retention": 604800 },
-      "actions": { "reserve": { "on": "item", "safe": false, "idempotent": true } } },
+      "actions": { "reserve": { "on": "item", "safe": false, "idempotent": true,
+        "description": "Holds a copy for the user for 48 hours.", "input": "/schemas/reserve.json" } } },
     "reviews": { "path": "/books/{id}/reviews", "sort": ["id", "created_at"], "max_limit": 50 } } }
 ```
 
-- Each profile adds its own fields to the document, described in its section. A server MAY add others; clients ignore what they do not know.
-- A collection’s `path` MAY be a URI template (RFC 6570); subcollections are declared that way.
-- Field types, where discovery declares them, come from this list: `string`, `integer`, `number`, `decimal` (a string matching `-?[0-9]+(\.[0-9]+)?`), `boolean`, `date`, `datetime`, `duration` and `enum` (with its `values`). Discovery only declares types where Restep needs them, such as filters; for a full schema, the server MAY link one with `rel="describedby"`.
+- Each profile adds its own fields to the document, described in its section. The members of the root and of each collection, `schemas`, filter, relation, action and deprecation object belong to Restep, so a later minor version can add some: a server MAY add its own, and their names MUST start with `x-`. This does not apply to the names the API gives its collections, fields, relations and actions, which are keys of `collections`, `filter`, `relations` and `actions`. Clients ignore what they do not know.
+- A collection’s `path` MAY be a URI template ([**RFC 6570**](https://www.rfc-editor.org/rfc/rfc6570)); subcollections are declared that way.
+- Field types, where discovery declares them, come from this list: `string`, `integer`, `number`, `decimal` (a string matching `-?[0-9]+(\.[0-9]+)?`), `boolean`, `date`, `datetime`, `duration` and `enum` (with its `values`). Discovery only declares types where Restep needs them, such as filters; the shape of whole representations and request bodies goes in the schemas of [4.3](https://restep.wubytes.com/1/#describing). A representation MAY also link its schema with `rel="describedby"`.
+- An origin that lists its APIs in `/.well-known/api-catalog` ([**RFC 9727**](https://www.rfc-editor.org/rfc/rfc9727)) MAY include a Restep API there, with the API root as `anchor` and a `service-desc` link to its discovery document.
+
+### 4.3 Describing operations
+
+Optional members that let a client, a person reading the document or an agent picking a tool, know what each collection does and accepts without trying it. A server MAY declare any of them on any collection; Restep requires none, so a `core` server can still be written by hand.
+
+- `methods` and `item_methods`: the methods a collection and its items support, out of `GET`, `POST`, `PATCH` and `DELETE` (`HEAD` goes with `GET`; actions and `QUERY` are announced on their own). A missing list means unknown, not all. A declared list MUST be exact: a method left out gives `405`, unless an error that comes first in [5.4](https://restep.wubytes.com/1/#errors) applies, a listed one never does, and the `Allow` header of a `405` MUST list every declared method and no other of those four.
+- `description`: a short plain-text explanation of a collection, a filter field, a relationship or an action. It SHOULD be one sentence.
+- `schemas`: JSON Schemas ([2020-12](https://json-schema.org/draft/2020-12)) of a collection’s `item` (its representation without `fields` or `include`), `create` (the body of a `POST`) and `update` (the body of a `PATCH`: a merge patch, where absent leaves a field untouched and `null` deletes it). Each is a schema object or a link to one, absolute as links in bodies are ([3](https://restep.wubytes.com/1/#data)). Schemas can describe each field with its own `description`.
+- Before validating a body against a declared `create` or `update` schema, the server drops the members that start with `_`, which [5.1](https://restep.wubytes.com/1/#resources) ignores. A body the schema then rejects MUST give `422 invalid` (`400 bad_request` if it is not a JSON object), unless an error that comes first in 5.4 applies, and its `errors` SHOULD point at the failing members. A schema describes, it does not promise: a body it accepts can still fail the API’s own rules. `readOnly` is only an annotation, and `id` follows 5.1 whatever the schema says.
+- An action’s `input` ([10.1](https://restep.wubytes.com/1/#actions)) is the schema of its body, with the same meaning.
+- A client sends its credentials for the API only to links on the API’s origin. A schema or document on another origin is fetched without them.
+
+Descriptions, like every other value an API returns, are data. An agent that puts them in a prompt does not obey what they say.
+
+### 4.4 Service status
+
+A server MAY declare in `status` a link, absolute as links in bodies are ([3](https://restep.wubytes.com/1/#data)), to a resource that says whether the API can serve requests, and MAY also link it from its responses with `rel="status"` ([**RFC 8631**](https://www.rfc-editor.org/rfc/rfc8631)). Clients MUST NOT assume a path such as `/health`.
+
+- Unless it asks for credentials or refuses them (`401`, `403`) or limits the rate (`429`), a `GET` or `HEAD` on it MUST answer `200` when the API can serve requests and `503` when it cannot, with `Retry-After` when the server knows for how long, and always with `Cache-Control: no-store`.
+- It is not a resource of the API: [4.1](https://restep.wubytes.com/1/#profile-header), [5.1](https://restep.wubytes.com/1/#resources) to [5.4](https://restep.wubytes.com/1/#errors) and [7.3](https://restep.wubytes.com/1/#caching) do not apply to it. Its body MAY follow the Health Check Response Format ([draft-inadarei-api-health-check](https://datatracker.ietf.org/doc/draft-inadarei-api-health-check/)). Served without credentials, it SHOULD NOT say more than whether the API can serve.
 
 ## 5. core (Required)
 
@@ -126,15 +153,15 @@ Profile URI: `https://restep.wubytes.com/1/core`
 | `GET /books` | `200` | Lists the collection ([5.2](https://restep.wubytes.com/1/#collections)) |
 | `POST /books` | `201` with `Location` | Creates an item and returns its representation |
 | `GET /books/7` | `200` | Returns the item, with no envelope |
-| `PATCH /books/7` | `200` | Partial update with JSON Merge Patch (RFC 7396), except relationship objects (below); returns the whole item |
+| `PATCH /books/7` | `200` | Partial update with JSON Merge Patch ([**RFC 7396**](https://www.rfc-editor.org/rfc/rfc7396)), except relationship objects (below); returns the whole item |
 | `DELETE /books/7` | `204` | Deletes the item. Repeating it MAY return `404` |
 
 - Responses MUST use the statuses in the table for those operations, except where [7.4](https://restep.wubytes.com/1/#minimal) allows a response without a body.
 - `PUT` is outside Restep 1: a client that replaces a whole item would erase fields added to the item after that client was written. Clients SHOULD use `PATCH`.
-- `HEAD` MUST be supported wherever `GET` is (RFC 9110). `GET` and `HEAD` MUST NOT have effects visible to the client.
+- `HEAD` MUST be supported wherever `GET` is ([**RFC 9110**](https://www.rfc-editor.org/rfc/rfc9110)). `GET` and `HEAD` MUST NOT have effects visible to the client.
 - A method the resource does not support MUST return `405` with an `Allow` header. `OPTIONS` is outside Restep: servers MAY answer it for CORS.
-- `PATCH` MUST accept `application/merge-patch+json` and SHOULD also accept `application/json` with the same meaning. A `415` to a `PATCH` SHOULD carry `Accept-Patch` (RFC 5789). A patch that is not a JSON object MUST give `400 bad_request`.
-- An item’s path MUST be its collection’s path, with any URI template expanded (RFC 6570), its variables taking in order the `id`s of the parent items, and without a trailing `/`, followed by `/` and the item’s own `id`: `/books/7`, `/books/7/reviews/3`.
+- `PATCH` MUST accept `application/merge-patch+json` and SHOULD also accept `application/json` with the same meaning. A `415` to a `PATCH` SHOULD carry `Accept-Patch` ([**RFC 5789**](https://www.rfc-editor.org/rfc/rfc5789)). A patch that is not a JSON object MUST give `400 bad_request`.
+- An item’s path MUST be its collection’s path, with any URI template expanded ([**RFC 6570**](https://www.rfc-editor.org/rfc/rfc6570)), its variables taking in order the `id`s of the parent items, and without a trailing `/`, followed by `/` and the item’s own `id`: `/books/7`, `/books/7/reviews/3`.
 - The server MUST assign `id`, and MUST give `422 invalid` to a `POST` that carries an `id` or a `PATCH` that carries a different one.
 - In a write, the server MUST ignore members whose names start with `_`, so a client can send back a representation it read.
 - In a write, a relationship object is replaced whole, not merged: the server MUST read only its `id` (and `type`) and MUST NOT change the related item through it. `{"author": {"id": "4"}}` links another author; `{"author": null}` unlinks it. A to-many list is replaced whole, as Merge Patch does with any array.
@@ -164,11 +191,11 @@ This is the rule that lets a server climb a step without breaking anyone: a clie
 The two parameter codes tell a client whether to change the request or give up on the capability:
 
 - `unsupported_parameter` MUST be used when the request asks for something the resource does not offer: a reserved parameter it does not implement, a parameter form it does not support (`filter=…` without [`filter-expr`](https://restep.wubytes.com/1/#filter-expr), `sort[…]`), a filter field or operator, sort key or relationship that is not declared, or `count` on a collection that does not declare it. It applies to every method: `POST /books?filter[x]=1` gives it too.
-- `invalid_parameter` MUST be used when a supported capability gets a wrong value: a value that does not match the field’s type, a `limit` out of range, a field in `fields` that does not exist, an empty list, a repeated parameter, a bad cursor.
+- `invalid_parameter` MUST be used when a supported capability gets a wrong value: a value that does not match the field’s type, a `limit` out of range, a field in `fields` that does not exist, an empty list, a repeated parameter, a bad cursor. Like `unsupported_parameter`, it MUST carry in `parameter` the name of the parameter at fault, exactly as received after percent-decoding; for a missing one, its name; in the body of a `QUERY` ([10.4](https://restep.wubytes.com/1/#query-method)), the name of the equivalent `GET` parameter, such as `filter[price][le]`, or the member’s own name when there is none.
 
 ### 5.4 Errors
 
-Every `4xx` or `5xx` response the API generates MUST use `application/problem+json` (RFC 9457) when it has a body, with `type`, `title`, `status` (equal to the response’s) and a `code`. It MAY carry `detail`, `instance` and its own members. An error MUST NOT be sent as a `200` response; the only place an error goes inside a `200` is a per-operation result of [`batch`](https://restep.wubytes.com/1/#batch).
+Every `4xx` or `5xx` response the API generates MUST use `application/problem+json` ([**RFC 9457**](https://www.rfc-editor.org/rfc/rfc9457)) when it has a body, with `type`, `title`, `status` (equal to the response’s) and a `code`. It SHOULD carry `detail`, saying, where it can, how to fix the request (the accepted values, the allowed range), and MAY carry `instance` and its own members. An error MUST NOT be sent as a `200` response; the only place an error goes inside a `200` is a per-operation result of [`batch`](https://restep.wubytes.com/1/#batch).
 
 ```
 HTTP/1.1 422 Unprocessable Content
@@ -184,10 +211,10 @@ Content-Type: application/problem+json
 - `code` MUST come from the table below. For a status the table does not list, `code` MUST be that status’s description in the IANA HTTP Status Code Registry, in `snake_case` (`502` → `bad_gateway`, `431` → `request_header_fields_too_large`), or `http_` followed by the number for an unregistered status.
 - `type` SHOULD be `https://restep.wubytes.com/1/errors#` followed by the code, or a URI of the API’s own that documents the case. It MAY be `about:blank`.
 - For errors of the API’s domain (insufficient funds, out of stock) the response MAY add `reason`: a `snake_case` string defined by the API and stable within a version. `code` keeps the class (`conflict`, `invalid`), so a generic client still knows what to do.
-- Validation errors SHOULD list the problems in `errors`. Each entry has a `pointer` (a JSON Pointer, RFC 6901, into the request body; Restep uses the plain string form, not the URI fragment), or a `parameter` or `header` name, plus a `code`: `required`, `type`, `format`, `range`, `too_long`, `unknown`, `read_only`, or one of the API’s own.
-- A `401` MUST carry `WWW-Authenticate` (RFC 9110).
+- Validation errors SHOULD list the problems in `errors`. Each entry has a `pointer` (a JSON Pointer, [**RFC 6901**](https://www.rfc-editor.org/rfc/rfc6901), into the request body; Restep uses the plain string form, not the URI fragment), or a `parameter` or `header` name, plus a `code`: `required`, `type`, `format`, `range`, `too_long`, `unknown`, `read_only`, or one of the API’s own.
+- A `401` MUST carry `WWW-Authenticate` ([**RFC 9110**](https://www.rfc-editor.org/rfc/rfc9110)).
 - Clients MUST handle a `code` they do not know according to the class of the `status`.
-- When more than one of these errors applies to a request, the server MUST report the first in this order: `401`, `403`, `404`, `410`, `405`, `400`, `415`, `406`, `413`, `428`, `412`, `422`, `409`. Within `400`, `unsupported_parameter` and `invalid_parameter` come before `bad_request`; other codes that share a status are not ordered. The order also decides between errors that other sections require (5.3, [9](https://restep.wubytes.com/1/#sync), [10](https://restep.wubytes.com/1/#extensions)). Before giving an error, the server MUST rule out the earlier ones it can check; it need not parse a body whose media type it rejects, or read past its size limit, to look for another. Whether conditional headers are evaluated at all follows RFC 9110 (section 13.2.1); when they are, this order prevails over the point at which RFC 9110 (section 13.2.2) evaluates them, so a body that is not JSON gives `400` before a failed precondition. The order says nothing about statuses it does not list, such as `414`, `424`, `429` and `5xx`. When the API does not reveal whether a resource exists, that case is a `404`, not a `403`; a retired resource gives `410`, not `404`, unless its existence is concealed.
+- When more than one of these errors applies to a request, the server MUST report the first in this order: `401`, `403`, `404`, `410`, `405`, `400`, `415`, `406`, `413`, `428`, `412`, `422`, `409`. Within `400`, `unsupported_parameter` and `invalid_parameter` come before `bad_request`; other codes that share a status are not ordered. The order also decides between errors that other sections require ([4.3](https://restep.wubytes.com/1/#describing), 5.3, [9](https://restep.wubytes.com/1/#sync), [10](https://restep.wubytes.com/1/#extensions)). Before giving an error, the server MUST rule out the earlier ones it can check; it need not parse a body whose media type it rejects, read past its size limit, or validate the operations of a batch that exceeds `max_operations`, to look for another. Whether conditional headers are evaluated at all follows [**RFC 9110**](https://www.rfc-editor.org/rfc/rfc9110#section-13.2.1) (section 13.2.1); when they are, this order prevails over the point at which [**RFC 9110**](https://www.rfc-editor.org/rfc/rfc9110#section-13.2.2) (section 13.2.2) evaluates them, so a body that is not JSON gives `400` before a failed precondition. The order says nothing about statuses it does not list, such as `414`, `424`, `429` and `5xx`. When the API does not reveal whether a resource exists, that case is a `404`, not a `403`; a retired resource gives `410`, not `404`, unless its existence is concealed.
 
 | `code` | Status | When | Profile |
 |---|---|---|---|
@@ -227,15 +254,15 @@ A Restep API evolves without versions as long as changes are compatible, and onl
 - removing or renaming a field, or changing its type or meaning;
 - making an input field, parameter or header required when it was not (including `If-Match` through `428`, and `Idempotency-Key`);
 - tightening validation so that a request accepted before is now rejected, unless it closes a security hole;
-- removing a declared filter, sort, relationship, action, collection or profile;
+- removing a declared filter, sort, relationship, action, collection, profile or method ([4.3](https://restep.wubytes.com/1/#describing));
 - changing the format of `id`s, resource URLs or a collection’s default order;
 - changing the status or the `code` returned for the same case.
 
 **Retiring.** Within a version, a field or a declared capability can only disappear by retiring it:
 
-- It is announced first. Discovery MUST list it in `deprecations`, at the root for a version or a collection and in the collection for the rest: `{"kind": "field", "name": "rating", "sunset": "2027-07-01T00:00:00Z"}`, where `kind` is `version`, `collection`, `field`, `filter`, `sort`, `relation` or `action`, and `sunset`, once there is a date, is an RFC 3339 instant. Responses that use it MUST carry `Deprecation` (RFC 9745) and a `Link` with `rel="deprecation"` to the explanation. When what is retired is a whole resource, an action or a version, its responses MUST also carry `Sunset` (RFC 8594, as an HTTP-date) once there is a date.
+- It is announced first. Discovery MUST list it in `deprecations`, at the root for a version or a collection and in the collection for the rest: `{"kind": "field", "name": "rating", "sunset": "2027-07-01T00:00:00Z"}`, where `kind` is `version`, `collection`, `field`, `filter`, `sort`, `relation`, `action`, `method` or `item_method` (with the method as `name`), and `sunset`, once there is a date, is an [**RFC 3339**](https://www.rfc-editor.org/rfc/rfc3339) instant. Responses that use it MUST carry `Deprecation` ([**RFC 9745**](https://www.rfc-editor.org/rfc/rfc9745)) and a `Link` with `rel="deprecation"` to the explanation. When what is retired is a whole resource, an action or a version, its responses MUST also carry `Sunset` ([**RFC 8594**](https://www.rfc-editor.org/rfc/rfc8594), as an HTTP-date) once there is a date.
 - At least six months SHOULD pass between the notice and the removal.
-- After the date, a retired resource, action or version MUST respond `410 retired`; a retired filter, sort or relationship MUST give `400 unsupported_parameter`, like any undeclared one; a retired field is simply absent.
+- After the date, a retired resource, action or version MUST respond `410 retired`; a retired filter, sort or relationship MUST give `400 unsupported_parameter`, like any undeclared one; a retired method gives `405`; a retired field is simply absent.
 
 ```
 GET https://api.example.com/v1/books/7
@@ -254,7 +281,7 @@ GET https://api.example.com/v1/books/7   after 1 July 2027
 
 - The version MUST go in the path, as `v` followed by an integer: `/v2/`. Each version is a separate API root with its own discovery document, which MUST declare it as `"version": "2"`.
 - The version MUST NOT go in headers, parameters or media types: in the path it is visible, cacheable and routable with no code. This leaves out date-based versioning in a header; see [open questions](https://restep.wubytes.com/1/#open).
-- The two versions MUST link to each other with `Link` (RFC 5829), at least in the discovery document: `rel="successor-version"` from the old one and `rel="predecessor-version"` from the new one.
+- The two versions MUST link to each other with `Link` ([**RFC 5829**](https://www.rfc-editor.org/rfc/rfc5829)), at least in the discovery document: `rel="successor-version"` from the old one and `rel="predecessor-version"` from the new one.
 
 ## 6. query (Profile)
 
@@ -272,7 +299,7 @@ GET /books?filter[category]=novela-negra&filter[price][le]=20
 - `in` takes values separated by commas; its values cannot contain commas (use `eq`, `filter-expr` or `query-method` for those). `null` takes `true` (no value: absent or `null`) or `false`.
 - The server MUST compare by the declared type: numerically for `integer`, `number` and `decimal` (decimals exactly, without going through floating point), chronologically for `date` and `datetime` (as instants), by length for `duration` (a day counts as 24 hours; a filter value with years or months MUST give `invalid_parameter`, because they have no fixed length), and by Unicode code points for `string` and `enum`, case-sensitively and without locale rules. A `boolean` field may declare only `eq`, `ne` and `null`. `null` may be declared on a field of any type and tests whether the value is absent or `null`.
 - Every operator except `null` MUST NOT match items where the field is absent or `null`.
-- A value that does not match the field’s type, an empty `in` list, or the same filter (same field and operator, in either form) twice MUST give `invalid_parameter`. An undeclared field or operator, `unsupported_parameter` ([5.3](https://restep.wubytes.com/1/#reserved)).
+- A `null` operand other than `true` or `false`, an operand of any other operator that does not match the field’s type (for `in`, each element), an empty `in` list, or the same filter (same field and operator, in either form) twice MUST give `invalid_parameter`. An undeclared field or operator, `unsupported_parameter` ([5.3](https://restep.wubytes.com/1/#reserved)).
 
 ### 6.2 Sorting
 
@@ -286,7 +313,7 @@ With `fields=title,price` the response MUST carry only those fields, plus `id` a
 
 - `limit` sets the page size, between 1 and the declared `max_limit`. Outside that range the server MUST give `invalid_parameter`, not clamp it silently.
 - `next` MUST carry an opaque `cursor` parameter and keep the other parameters unchanged. Clients MUST NOT interpret or build cursors.
-- A cursor is bound to the collection, the filters and the sort it was issued for; with `QUERY`, to the `filter` and `sort` members of the body ([10.4](https://restep.wubytes.com/1/#query-method)). A cursor the server did not issue (a tampered one), an expired one, or one used with another collection, other filters or another sort MUST give `invalid_parameter` with `parameter: "cursor"`. A cursor SHOULD also be bound to the client that received it. Signing it is the simplest way to tell a tampered one.
+- A cursor is bound to the collection, the filters and the sort it was issued for; with `QUERY`, to the `filter` and `sort` members of the body ([10.4](https://restep.wubytes.com/1/#query-method)). A cursor the server did not issue (a tampered one), an expired one, or one used with another collection, other filters or another sort MUST give `invalid_parameter` with `parameter: "cursor"`. A cursor SHOULD also be bound to the principal ([2](https://restep.wubytes.com/1/#terms)) that received it. Signing it is the simplest way to tell a tampered one.
 - A cursor MUST NOT be bound to `limit`, `fields`, `include` or `count`: they change what each page carries, not which items the traversal visits. Between pages, a client MAY add, change or remove them in the `next` URL of a `GET`, or in the body of a `QUERY`, and that MUST NOT invalidate the cursor.
 - A server MAY start with an offset inside the cursor and later move to keyset pagination without clients noticing. The guarantee is the one in [5.2](https://restep.wubytes.com/1/#collections): no repeats and no gaps without concurrent writes.
 
@@ -305,10 +332,10 @@ POST /orders
 Idempotency-Key: "8e03978e-40d5-43e8-bc93-6894a57f9324"
 ```
 
-- Every non-idempotent `POST`, including actions declared `"idempotent": false`, MUST accept the `Idempotency-Key` header: a Structured Fields string (RFC 9651), as in the IETF draft. A malformed key MUST give `400 bad_request`.
-- A key belongs to one client (its credentials) and one target (method and path). Two requests are **the same** when they share key, client and target and their bodies are equal as JSON values (member order and whitespace do not count).
+- Every non-idempotent `POST`, including actions declared `"idempotent": false`, MUST accept the `Idempotency-Key` header: a Structured Fields string ([**RFC 9651**](https://www.rfc-editor.org/rfc/rfc9651)), as in the IETF draft. A malformed key MUST give `400 bad_request`.
+- A key belongs to one principal ([2](https://restep.wubytes.com/1/#terms)), not to a token, and one target (method and path): a retry with a renewed token still finds it. Two requests are **the same** when they share key, principal and target and their bodies are equal as JSON values (member order and whitespace do not count).
 - The server MUST keep each key for at least 24 hours from the first request, and SHOULD declare how long in discovery (`"idempotency": {"ttl": 86400}`, in seconds). After that, the key counts as new.
-- If the same request arrives again, the server MUST return the same status and body without repeating the effect, and SHOULD add `Idempotent-Replayed: true`. Headers such as `Date` may differ. A replay is decided after every check that [5.4](https://restep.wubytes.com/1/#errors) puts before `428`. It does not evaluate `If-Match`, `If-None-Match` or a `428` requirement: it returns the stored response even if they no longer hold. A different request under the same key evaluates them as usual, so `412` comes before `422 idempotency_mismatch`.
+- If the same request arrives again, the server MUST return the same status and body without repeating the effect, and SHOULD add `Idempotent-Replayed: true`. Headers such as `Date` may differ. A replay, and the `409 conflict` for the same request while the first one is still running, are decided after every check that [5.4](https://restep.wubytes.com/1/#errors) puts before `428`. Neither evaluates `If-Match`, `If-None-Match` or a `428` requirement: a replay returns the stored response even if they no longer hold. A different request under the same key evaluates them as usual, so `412` comes before `422 idempotency_mismatch`.
 - If the server fails after the effect and before storing the response, a retry with the same key MUST NOT repeat the effect: the server records both atomically, or recovers as if it had.
 - A request that was rejected before it ran (a `4xx` such as `422`, or a `5xx` that left no effect) MAY be left unstored; then it does not use up the key, and the client can fix it and retry with the same one. A request that had an effect MUST be stored.
 - The same key with a different request MUST give `422 idempotency_mismatch`, also while the first one is still running; the same request while the first one is still running gives `409 conflict`. A resource that requires the key MUST give `400 idempotency_key_required` without it.
@@ -316,10 +343,10 @@ Idempotency-Key: "8e03978e-40d5-43e8-bc93-6894a57f9324"
 
 ### 7.2 Optimistic concurrency
 
-- Each item has a strong **item ETag**: the `ETag` of its full representation, without `fields` or `include`. A `GET` of the full item without content coding MUST carry it, and servers MUST NOT use a weak validator (`W/`) for it. With a content coding (gzip), the `ETag` header MAY differ, as RFC 9110 requires, and the item then MUST carry the item ETag in `_etag`.
+- Each item has a strong **item ETag**: the `ETag` of its full representation, without `fields` or `include`. A `GET` of the full item without content coding MUST carry it, and servers MUST NOT use a weak validator (`W/`) for it. With a content coding (gzip), the `ETag` header MAY differ, as [**RFC 9110**](https://www.rfc-editor.org/rfc/rfc9110) requires, and the item then MUST carry the item ETag in `_etag`.
 - A single item’s response with `fields` or `include` is another representation: its `ETag` header MUST change whenever anything in it changes, included items too, and the item MUST carry the item ETag in `_etag`, so the client can write without another read.
 - Items inside a collection MAY carry that same value in `_etag`, so a client can write without reading each item first.
-- `PATCH` and `DELETE` MUST evaluate `If-Match` against the item ETag as RFC 9110 says (lists, `*`, strong comparison): if it does not match, `412 precondition_failed`.
+- `PATCH` and `DELETE` MUST evaluate `If-Match` against the item ETag as [**RFC 9110**](https://www.rfc-editor.org/rfc/rfc9110) says (lists, `*`, strong comparison): if it does not match, `412 precondition_failed`.
 - Evaluating `If-Match` and applying the write MUST be atomic with respect to other writes to the same item.
 - A resource MAY require `If-Match`; without it, it MUST answer `428 precondition_required`. Starting to require it is a breaking change ([5.5](https://restep.wubytes.com/1/#versions)).
 
@@ -327,12 +354,12 @@ Idempotency-Key: "8e03978e-40d5-43e8-bc93-6894a57f9324"
 
 - Every response to a `GET` or `HEAD`, errors included, MUST carry an explicit `Cache-Control`.
 - A response that depends on credentials MUST be `private` or `no-store`.
-- `If-None-Match` MUST be evaluated as RFC 9110 says (lists, `*`, weak comparison): when it matches, the server MUST answer `304` to `GET`, `HEAD` and `QUERY`, and `412` to writes without applying them.
-- A successful response to a `GET` SHOULD carry `Cache-Groups` (RFC 9875) naming every item it represents, included ones too, and, for a collection, the collection itself, so a cache can drop the lists an item enters or leaves. A `2xx` response to a `HEAD` SHOULD carry the groups the `GET` would. A successful response to a write that committed changes (for a batch, the outer response, covering every committed operation) SHOULD carry `Cache-Group-Invalidation` naming every item it changed and their collections, even without a body. Group names are opaque and per origin; the item’s path (`"/books/7"`) and the collection’s (`"/books"`) are the obvious choice. A cache may or may not honour them, and RFC 9875 only guarantees 32 groups per field, of 32 characters each, so a long page or a long id may not get every item invalidated. The collection’s own group SHOULD come first.
+- `If-None-Match` MUST be evaluated as [**RFC 9110**](https://www.rfc-editor.org/rfc/rfc9110) says (lists, `*`, weak comparison): when it matches, the server MUST answer `304` to `GET`, `HEAD` and `QUERY`, and `412` to writes without applying them. `304` to `QUERY` is a Restep rule: [**RFC 9110**](https://www.rfc-editor.org/rfc/rfc9110#section-13.1.2) (section 13.1.2) names only `GET` and `HEAD`, while [**RFC 10008**](https://www.rfc-editor.org/rfc/rfc10008) makes a `QUERY` select the same representation as the equivalent `GET` and answers a conditional one with `304` in its example.
+- A successful response to a `GET` SHOULD carry `Cache-Groups` ([**RFC 9875**](https://www.rfc-editor.org/rfc/rfc9875)) naming every item it represents, included ones too, and, for a collection, the collection itself, so a cache can drop the lists an item enters or leaves. A `2xx` response to a `HEAD` SHOULD carry the groups the `GET` would. A successful response to a write that committed changes (for a batch, the outer response, covering every committed operation) SHOULD carry `Cache-Group-Invalidation` naming every item it changed and their collections, even without a body. Group names are opaque and per origin; the item’s path (`"/books/7"`) and the collection’s (`"/books"`) are the obvious choice. A cache may or may not honour them, and [**RFC 9875**](https://www.rfc-editor.org/rfc/rfc9875) only guarantees 32 groups per field, of 32 characters each, so a long page or a long id may not get every item invalidated. The collection’s own group SHOULD come first.
 
 ### 7.4 Minimal responses
 
-With `Prefer: return=minimal` (RFC 7240), writes MAY respond without a body: `201` with `Location` and `ETag`, or `204`, with `ETag` when the item still exists (not after a `DELETE`). When they do, they SHOULD carry `Preference-Applied: return=minimal`. By default they return the representation.
+With `Prefer: return=minimal` ([**RFC 7240**](https://www.rfc-editor.org/rfc/rfc7240)), writes MAY respond without a body: `201` with `Location` and `ETag`, or `204`, with `ETag` when the item still exists (not after a `DELETE`). When they do, they SHOULD carry `Preference-Applied: return=minimal`. By default they return the representation.
 
 ## 8. relations (Profile)
 
@@ -389,16 +416,17 @@ Each extension is announced in `extensions` and in the `Link` header, and has it
 
 ### 10.1 actions (Extension)
 
-Operations that are not create, read, update or delete, following AIP-136: the action name goes after a colon.
+Operations that are not create, read, update or delete, following [**AIP-136**](https://google.aip.dev/136): the action name goes after a colon.
 
 ```
 POST /orders/2001:cancel       on an item
 POST /books:import             on the collection
-GET  /orders/2001:preview      a safe action MAY use GET
+GET  /orders/2001:preview      a safe action declared with "method": "GET"
 ```
 
 - Each action MUST be declared in its collection’s `actions`, with `on` (`"item"` or `"collection"`), `safe` and `idempotent`. Action names are `snake_case`; `changes` is reserved for `sync`.
-- Only safe actions MAY use `GET`; the rest MUST use `POST`. Servers MUST also accept the colon encoded as `%3A`.
+- An action uses `POST` unless its declaration says `"method": "GET"`, which only safe actions MAY do. Servers MUST also accept the colon encoded as `%3A`.
+- The declaration MAY carry a `description` and, if the action uses `POST`, an `input` schema ([4.3](https://restep.wubytes.com/1/#describing)). A `GET` action has no body, so it MUST NOT declare `input`.
 - The response MUST be the affected resource’s representation (`200`), a new one (`201` with `Location`) or nothing (`204`).
 - A representation MAY list in `_actions` the actions available in its current state, so clients do not duplicate business rules:
 
@@ -427,8 +455,8 @@ POST /batch
 ```
 
 - Each operation MUST have an `id`, unique in the batch, a `method`, a `path` and, optionally, `headers` (such as `If-Match`, `Idempotency-Key` or `Prefer`, with lowercase names) and `body`. Each operation MUST follow the same rules as if it were sent alone.
-- A reference is `<id>#<JSON Pointer>` into the response body of an earlier operation: in braces inside `path`, where the value MUST be inserted percent-encoded as a path segment (RFC 3986), or as `{"$ref": …}` in place of a body value. An object whose only member is `$ref` is always a reference.
-- A body that is not a valid batch, a repeated operation `id`, a reference to an operation that does not come earlier, or a nested batch MUST give `400 bad_request` before any operation runs. [5.4](https://restep.wubytes.com/1/#errors) applies to the batch request as a whole before any operation runs; once the batch is accepted, it applies to each operation on its own, subject to the `424 not_executed` rules below. More operations than `max_operations`, `413 content_too_large`, which the server MAY give without validating the operations.
+- A reference is `<id>#<JSON Pointer>` into the response body of an earlier operation: in braces inside `path`, where the value MUST be inserted percent-encoded as a path segment ([**RFC 3986**](https://www.rfc-editor.org/rfc/rfc3986)), or as `{"$ref": …}` in place of a body value. An object whose only member is `$ref` is always a reference.
+- A body that is not a valid batch, a repeated operation `id`, a reference to an operation that does not come earlier, or a nested batch MUST give `400 bad_request` before any operation runs. [5.4](https://restep.wubytes.com/1/#errors) applies to the batch request as a whole before any operation runs; once the batch is accepted, it applies to each operation on its own, subject to the `424 not_executed` rules below. More operations than `max_operations` give `413 content_too_large`, which the server MAY give without validating the operations ([5.4](https://restep.wubytes.com/1/#errors)).
 - A batch that passes these checks, the atomic check below and those of any request (credentials, content type, rate limits, [7.1](https://restep.wubytes.com/1/#idempotency)) MUST get `200` with one result per operation, in order, each with its own `status`, `headers` and `body`; an error result is a problem object. This is the only exception to “no error inside a `200`” ([5.4](https://restep.wubytes.com/1/#errors)).
 - With `"atomic": true`, either all operations take effect or none does. If one fails, it carries its error and every other operation MUST get `424 not_executed`, including those that ran and were rolled back. A server that cannot roll back one of the operations (an external payment, an email) MUST reject the atomic batch with `422 invalid` before running it.
 - Without `atomic`, each operation applies on its own; an operation whose reference cannot be resolved, because the referenced one failed or the pointer finds nothing, MUST get `424 not_executed`.
@@ -436,20 +464,20 @@ POST /batch
 
 ### 10.3 filter-expr (Extension)
 
-A filter as an expression, in the spirit of AIP-160:
+A filter as an expression, in the spirit of [**AIP-160**](https://google.aip.dev/160):
 
 ```
 GET /books?filter=price <= 20 AND (category = "novela-negra" OR rating >= 4.5)
 ```
 
 - Comparators `=`, `!=`, `<`, `<=`, `>` and `>=`, which map to `eq`, `ne`, `lt`, `le`, `gt` and `ge`; `AND`, `OR`, `NOT` and parentheses. Fields by name or dotted path. Values: strings in double quotes (with `\"` and `\\` as the only escapes), numbers, `true`, `false` and `null`. `field = null` and `field != null` map to the `null` operator.
-- `NOT` binds tightest. `AND` and `OR` MUST NOT be mixed at the same level without parentheses: `a AND b OR c` MUST give `invalid_parameter`. AIP-160 gives `OR` precedence over `AND`, most languages do the opposite; Restep asks for parentheses so nobody guesses. Juxtaposition (`a b`, AIP-160’s implicit AND) MUST give `invalid_parameter` too.
+- `NOT` binds tightest. `AND` and `OR` MUST NOT be mixed at the same level without parentheses: `a AND b OR c` MUST give `invalid_parameter`. [**AIP-160**](https://google.aip.dev/160) gives `OR` precedence over `AND`, most languages do the opposite; Restep asks for parentheses so nobody guesses. Juxtaposition (`a b`, [**AIP-160**](https://google.aip.dev/160)’s implicit AND) MUST give `invalid_parameter` too.
 - A field or operator not declared in `filter` MUST give `unsupported_parameter`. Comparisons follow [6.1](https://restep.wubytes.com/1/#filters), absent and `null` values included; a number compared with a `decimal` field is read as an exact decimal.
 - It cannot be combined with `filter[…]` in the same request: that MUST give `invalid_parameter`.
 
 ### 10.4 query-method (Extension)
 
-For queries that do not fit in a URL, the `QUERY` method (RFC 10008): safe, idempotent and cacheable, with the `query` parameters in the body.
+For queries that do not fit in a URL, the `QUERY` method ([**RFC 10008**](https://www.rfc-editor.org/rfc/rfc10008)): safe, idempotent and cacheable, with the `query` parameters in the body.
 
 ```
 QUERY /books
@@ -459,15 +487,39 @@ Content-Type: application/json
   "sort": ["-rating"], "fields": ["title", "price"], "limit": 10, "count": true }
 ```
 
-- Collections that accept it MUST announce it with `Accept-Query: application/json` (RFC 10008) in their responses to `GET` and `HEAD`.
+- Collections that accept it MUST announce it with `Accept-Query: application/json` ([**RFC 10008**](https://www.rfc-editor.org/rfc/rfc10008)) in their responses to `GET` and `HEAD`.
 - The body is a JSON object with the same members as the reserved parameters: `filter` as an object of fields and operators (or, with `filter-expr`, a string), `sort`, `fields` and `include` as lists, `limit` as a number and `count` as a boolean. Values use their JSON type, and `in` takes a list, so its values can contain commas. An unknown member MUST give `unsupported_parameter`.
-- A `QUERY` MUST return the same as the equivalent `GET`, with the same errors; a matching `If-None-Match` gives `304`, as for `GET` (RFC 10008, section 2.6). The URL MUST NOT carry reserved parameters other than `cursor`.
-- In the response, `next` carries only `cursor`. For the next page, the client MUST send a body with the same `filter` and `sort` to the `next` URL, and MAY change `limit`, `fields`, `include` and `count` ([6.4](https://restep.wubytes.com/1/#pagination)); the server MUST answer a `filter` or `sort` that is not equal as a JSON value (member order and whitespace do not count; an absent member, `{}` and `[]` are the same) with `invalid_parameter` on `cursor`.
+- A `QUERY` MUST return the same as the equivalent `GET`, with the same errors; a matching `If-None-Match` gives `304`, as for `GET` ([7.3](https://restep.wubytes.com/1/#caching)). The URL MUST NOT carry reserved parameters other than `cursor`.
+- In the response, `next` carries only `cursor`, which here overrides the rule of [6.4](https://restep.wubytes.com/1/#pagination) that keeps the other parameters. For the next page, the client MUST send a body with the same `filter` and `sort` to the `next` URL, and MAY change `limit`, `fields`, `include` and `count` ([6.4](https://restep.wubytes.com/1/#pagination)); the server MUST answer a `filter` or `sort` that is not equal as a JSON value (member order and whitespace do not count; an absent member, `{}` and `[]` are the same) with `invalid_parameter` on `cursor`.
 - Caches that store `QUERY` responses use the body as part of the key; many CDNs do not do that yet.
+
+### 10.5 oauth (Extension)
+
+How a client finds out where to get a token for the API. It defines neither authentication nor authorization: it ties the OAuth 2.0 Protected Resource Metadata ([**RFC 9728**](https://www.rfc-editor.org/rfc/rfc9728)) to the API root. A server that does not announce it authenticates as it sees fit.
+
+```
+GET /api/                         (the API root: https://example.com/api/)
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer resource_metadata="https://example.com/.well-known/oauth-protected-resource/api/"
+
+GET https://example.com/.well-known/oauth-protected-resource/api/
+{ "resource": "https://example.com/api/",
+  "authorization_servers": ["https://auth.example.com"],
+  "scopes_supported": ["books:read", "books:write"] }
+```
+
+- The server MUST serve the metadata at the URL that [**RFC 9728**](https://www.rfc-editor.org/rfc/rfc9728#section-3.1) (section 3.1) forms from the API root: the well-known suffix goes between the host and the root’s path, which keeps its final slash; only when the root is the bare host does its slash go. Under `https://example.com/api/` it is `https://example.com/.well-known/oauth-protected-resource/api/`; under `https://api.example.com/`, `https://api.example.com/.well-known/oauth-protected-resource`.
+- In that document, `resource` MUST be the API root, character for character, final slash included, and `authorization_servers` MUST list at least one issuer: [**RFC 9728**](https://www.rfc-editor.org/rfc/rfc9728) makes it optional, but without it the client has nothing to discover. `scopes_supported` SHOULD be present. Each authorization server describes itself with [**RFC 8414**](https://www.rfc-editor.org/rfc/rfc8414) or OpenID Connect Discovery; Restep requires nothing of it.
+- The metadata is not a resource of the API: [4.1](https://restep.wubytes.com/1/#profile-header), [5.1](https://restep.wubytes.com/1/#resources), [5.2](https://restep.wubytes.com/1/#collections) and [5.3](https://restep.wubytes.com/1/#reserved) do not apply to it. It MUST be served as `application/json` without requiring credentials, so it never gives `401`, and it SHOULD carry `Cache-Control: public` with a `max-age`.
+- When the API root requires credentials, its `401` MUST carry the absolute URL of the metadata in `resource_metadata` ([**RFC 9728**](https://www.rfc-editor.org/rfc/rfc9728#section-5.1), section 5.1), in at least one challenge: `Bearer`, `DPoP` or any other the API accepts. [**RFC 9728**](https://www.rfc-editor.org/rfc/rfc9728#section-3.3) (section 3.3) makes clients discard metadata found that way whose `resource` is not the URL they requested, so on any other resource the server MUST NOT point `resource_metadata` at the root’s metadata. The root’s metadata is for the exact root URL, without a query. A client that gets a `401` without `resource_metadata` forms the metadata URL from the root.
+- OAuth errors keep their Restep codes: the challenge carries the OAuth error and the body the Restep `code`. `invalid_request` is `400 bad_request`; `invalid_token`, and `invalid_dpop_proof` and `use_dpop_nonce` ([**RFC 9449**](https://www.rfc-editor.org/rfc/rfc9449)), are `401 unauthenticated`; `insufficient_scope` is `403 forbidden`. A `403` for a missing scope MUST carry `error="insufficient_scope"` in its challenge ([**RFC 6750**](https://www.rfc-editor.org/rfc/rfc6750#section-3.1), section 3.1) and SHOULD name the scope needed in `scope`, unless that would reveal permissions the client must not know. A resource whose existence is concealed still gives `404` ([5.4](https://restep.wubytes.com/1/#errors)).
+- The server MUST refuse a token meant for another resource server ([**RFC 9700**](https://www.rfc-editor.org/rfc/rfc9700#section-2.3), section 2.3). A client asks for a token restricted to this API by sending its `resource` in the `resource` parameter ([**RFC 8707**](https://www.rfc-editor.org/rfc/rfc8707)).
+- With DPoP ([**RFC 9449**](https://www.rfc-editor.org/rfc/rfc9449)) the challenge uses the `DPoP` scheme. A retry with a fresh DPoP proof comes from the same principal and is the same request for [7.1](https://restep.wubytes.com/1/#idempotency).
+- A server that allows cross-origin requests SHOULD list `WWW-Authenticate` in `Access-Control-Expose-Headers` (and `DPoP-Nonce`, if it uses DPoP nonces), or a browser client cannot read them, and SHOULD serve the metadata with `Access-Control-Allow-Origin`. `EventSource` cannot send `Authorization`, so a browser client reads the event stream of [9](https://restep.wubytes.com/1/#sync) with `fetch`; the server SHOULD NOT accept tokens in the query string ([**RFC 6750**](https://www.rfc-editor.org/rfc/rfc6750#section-2.3), section 2.3).
 
 ## 11. Conformance
 
-A server conforms to a profile when it meets every requirement on servers marked MUST or MUST NOT in sections 3, 4 and 5 and in that profile’s section, and announces the profiles it requires. The same holds for each extension. These are the checks a conformance checker runs. [`restep-check`](https://restep.wubytes.com/tools/) already runs those of core, evolution, query and writes, and the full list of its checks is on its page; relations and sync come in a later version.
+A server conforms to a profile when it meets every requirement on servers marked MUST or MUST NOT in sections 3, 4 and 5 and in that profile’s section, and announces the profiles it requires. The same holds for each extension. These are the checks a conformance checker runs. [`restep-check`](https://restep.wubytes.com/tools/) already runs those of core, evolution (the `Deprecation` and retirement of what discovery lists, and the `predecessor-version` link; not the comparison of two deployments), query, writes and oauth (for oauth, without credentials on the root and on each collection, and except the `insufficient_scope` challenge, which needs a token without some scope), and the full list of its checks is on its page; relations and sync come in a later version.
 
 ### core
 
@@ -475,10 +527,13 @@ A server conforms to a profile when it meets every requirement on servers marked
 - Without concurrent writes, following `next` until `null` returns every item exactly once.
 - An item that does not exist gives `404` as `problem+json` with `code: "not_found"`.
 - Every unimplemented reserved parameter gives `400 unsupported_parameter`, on every method, unless an error that comes first in 5.4 applies: with valid credentials and no other fault, a missing item with an unsupported parameter gives `404 not_found`.
-- An unsupported method gives `405` with `Allow`; `HEAD` works wherever `GET` does.
+- An unsupported method gives `405` with `Allow`; `HEAD` works wherever `GET` does. Where discovery declares `methods` or `item_methods`, that `Allow` agrees with them.
+- Where discovery declares `status`, `GET` and `HEAD` on it give `200` or `503` with `Cache-Control: no-store`, or else `401`, `403` or `429`.
+- Every `invalid_parameter` and `unsupported_parameter` names its parameter in `parameter`.
+- Where discovery declares a `create` schema, a `POST` that leaves out a property it requires gives `422`; where it declares a closed `update` schema, so does a `PATCH` with a member the schema does not allow, even a `null` one.
 - Every error carries `type`, `title`, a `status` equal to the response’s, and a `code` from the list or derived from the IANA registry.
-- A `PATCH` with `{"author": {"id": "4", "extra": 1}}` changes the link, does not store `extra` and leaves both authors untouched.
-- Merge Patch follows RFC 7396 (an array or scalar replaced by an object loses its old content), except that relationship objects are replaced whole (5.1), and a write that changes `id` gives `422`.
+- A `PATCH` with `{"author": {"id": "4", "extra": 1}}` changes the link, does not store `extra` and leaves both authors untouched, unless a declared `update` schema rejects it.
+- Merge Patch follows [**RFC 7396**](https://www.rfc-editor.org/rfc/rfc7396) (an array or scalar replaced by an object loses its old content), except that relationship objects are replaced whole (5.1), and a write that changes `id` gives `422`.
 
 ### Evolution
 
@@ -502,6 +557,13 @@ A server conforms to a profile when it meets every requirement on servers marked
 - `If-Match` with an old `ETag` gives `412`, also when two writes race; a list that contains the current one succeeds. `If-None-Match` with the current one, weak or strong, gives `304` to a `GET` and `412` to a write.
 - Every response to a `GET` or `HEAD`, errors included, carries `Cache-Control`.
 
+### oauth
+
+- The metadata is at the URL [**RFC 9728**](https://www.rfc-editor.org/rfc/rfc9728) forms from the root, as JSON, without requiring credentials, with `resource` equal to the root and at least one authorization server.
+- The metadata does not give `401` (and, as a recommendation, carries `Cache-Control: public`).
+- If the root requires credentials, its `401` carries that absolute URL in `resource_metadata`; no `401` elsewhere points there.
+- A token without the scope a request needs gets, unless the resource’s existence is concealed, `403` with `code: "forbidden"` and `error="insufficient_scope"` in the challenge.
+
 ### relations and sync
 
 - Relationships are objects with an `id`, also without `include`, and every relationship is declared.
@@ -511,11 +573,17 @@ A server conforms to a profile when it meets every requirement on servers marked
 ## 12. Open questions
 
 - Should caching ([7.3](https://restep.wubytes.com/1/#caching)) be a profile of its own, so a server can offer it without building the idempotency store of 7.1?
-- Long-running operations: `202 Accepted` and an operation resource (as in AIP-151), so each API does not invent its own.
+- Long-running operations: `202 Accepted` and an operation resource (as in [**AIP-151**](https://google.aip.dev/151)), so each API does not invent its own.
 - Date-based versioning in a header (as Stripe does) as an alternative to the version in the path.
 - Should the profile and error URIs move to a persistent identifier (such as w3id.org) before 1.0, when they can still change?
 - Keeping filtered views in sync (as JMAP’s `queryChanges`).
-- Things that can come later as additions, without breaking anyone: named views (`$view`), a `prev` link for backward paging, batch results streamed as they finish, and reusing a `QUERY` through the `Location` RFC 10008 already defines.
+- Things that can come later as additions, without breaking anyone: named views (`$view`), a `prev` link for backward paging, batch results streamed as they finish, and reusing a `QUERY` through the `Location` [**RFC 10008**](https://www.rfc-editor.org/rfc/rfc10008) already defines.
+- Signed messages ([**RFC 9421**](https://www.rfc-editor.org/rfc/rfc9421), with `Content-Digest` from [**RFC 9530**](https://www.rfc-editor.org/rfc/rfc9530) and keys published as JWKS, [**RFC 7517**](https://www.rfc-editor.org/rfc/rfc7517)) for integrity between companies through intermediaries. Restep 1 has no case that needs them: TLS covers the client and the server, and the events of [9](https://restep.wubytes.com/1/#sync) carry no data. A signature that expires would also give `401` to a retry before it reaches the idempotency store of [7.1](https://restep.wubytes.com/1/#idempotency).
+- An `openapi` extension: what an OpenAPI description of a Restep API must say (a description per operation, request bodies, errors as `problem+json`) and how a checker would hold it to the discovery document, which would still prevail.
+- Marking actions whose effects cannot be undone or reach outside the API (a payment, an email), so a client can ask a person first, as MCP’s `destructiveHint` and `x-openai-isConsequential` do. A single flag does not tell “deletes data” from “charges someone”.
+- Declaring in advance which operations require `Idempotency-Key` ([7.1](https://restep.wubytes.com/1/#idempotency)) or `If-Match` ([7.2](https://restep.wubytes.com/1/#concurrency)), instead of learning it from a `400` or a `428`.
+
+Settled in draft 4: how a client discovers authorization, with the [`oauth`](https://restep.wubytes.com/1/#oauth) extension, without new error codes or scopes in discovery; that an idempotency key and a cursor belong to the principal, not to the token ([7.1](https://restep.wubytes.com/1/#idempotency), [6.4](https://restep.wubytes.com/1/#pagination)); that `api-catalog` is optional ([4.2](https://restep.wubytes.com/1/#discovery)); what helps agents and other generic clients use an API without trying it, as optional members of discovery ([4.3](https://restep.wubytes.com/1/#describing)): the methods of each collection, short descriptions, and JSON Schemas for items and request bodies; `parameter` on every `invalid_parameter` ([5.3](https://restep.wubytes.com/1/#reserved)) and `detail` as a recommendation ([5.4](https://restep.wubytes.com/1/#errors)); several `service-desc` links ([4.2](https://restep.wubytes.com/1/#discovery)); the method of an action, declared ([10.1](https://restep.wubytes.com/1/#actions)), so a `GET` action of an earlier draft now says `"method": "GET"`; and how to find the service status, without a fixed path ([4.4](https://restep.wubytes.com/1/#health)).
 
 Settled in draft 3: the order between errors ([5.4](https://restep.wubytes.com/1/#errors)); an item’s path ([5.1](https://restep.wubytes.com/1/#resources)); what a cursor is bound to ([6.4](https://restep.wubytes.com/1/#pagination)); filters repeated in either form, ranges as two filters on one field, and `null` on booleans ([6.1](https://restep.wubytes.com/1/#filters)); invalidation with cache groups ([7.3](https://restep.wubytes.com/1/#caching)); and how a client resumes the event stream ([9](https://restep.wubytes.com/1/#sync)).
 
@@ -523,23 +591,28 @@ Settled in draft 2: `filter[field][op]` is enough for `query`, and expressions s
 
 ## 13. References
 
-- [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110): HTTP semantics (methods, `ETag`, `If-Match`, `If-None-Match`).
-- [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457): Problem Details for HTTP APIs.
-- [RFC 7396](https://www.rfc-editor.org/rfc/rfc7396): JSON Merge Patch. [RFC 5789](https://www.rfc-editor.org/rfc/rfc5789): `PATCH` and `Accept-Patch`.
-- [RFC 6901](https://www.rfc-editor.org/rfc/rfc6901): JSON Pointer. [RFC 8259](https://www.rfc-editor.org/rfc/rfc8259): JSON.
-- [RFC 3986](https://www.rfc-editor.org/rfc/rfc3986): URIs. [RFC 6570](https://www.rfc-editor.org/rfc/rfc6570): URI templates.
-- [RFC 6906](https://www.rfc-editor.org/rfc/rfc6906): the `profile` link relation. [RFC 8631](https://www.rfc-editor.org/rfc/rfc8631): `service-desc`.
-- [RFC 7240](https://www.rfc-editor.org/rfc/rfc7240): `Prefer` and `Preference-Applied`.
-- [RFC 6585](https://www.rfc-editor.org/rfc/rfc6585): `428` and `429`. [RFC 4918](https://www.rfc-editor.org/rfc/rfc4918): `424`.
-- [RFC 3339](https://www.rfc-editor.org/rfc/rfc3339): dates and times.
-- [RFC 9651](https://www.rfc-editor.org/rfc/rfc9651): Structured Field Values for HTTP.
-- [RFC 10008](https://www.rfc-editor.org/rfc/rfc10008): the `QUERY` method.
-- [RFC 9875](https://www.rfc-editor.org/rfc/rfc9875): HTTP Cache Groups.
-- [RFC 8620](https://www.rfc-editor.org/rfc/rfc8620): JMAP, changes and back-references between operations.
-- [RFC 9745](https://www.rfc-editor.org/rfc/rfc9745) and [RFC 8594](https://www.rfc-editor.org/rfc/rfc8594): `Deprecation` and `Sunset`.
-- [RFC 5829](https://www.rfc-editor.org/rfc/rfc5829): the `successor-version` and `predecessor-version` relations.
-- [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119) and [RFC 8174](https://www.rfc-editor.org/rfc/rfc8174): requirement key words.
+- [**RFC 9110**](https://www.rfc-editor.org/rfc/rfc9110): HTTP semantics (methods, `ETag`, `If-Match`, `If-None-Match`).
+- [**RFC 9457**](https://www.rfc-editor.org/rfc/rfc9457): Problem Details for HTTP APIs.
+- [**RFC 7396**](https://www.rfc-editor.org/rfc/rfc7396): JSON Merge Patch. [**RFC 5789**](https://www.rfc-editor.org/rfc/rfc5789): `PATCH` and `Accept-Patch`.
+- [**RFC 6901**](https://www.rfc-editor.org/rfc/rfc6901): JSON Pointer. [**RFC 8259**](https://www.rfc-editor.org/rfc/rfc8259): JSON.
+- IETF draft for [the Health Check Response Format](https://datatracker.ietf.org/doc/draft-inadarei-api-health-check/): `application/health+json` ([4.4](https://restep.wubytes.com/1/#health)).
+- [**JSON Schema 2020-12**](https://json-schema.org/draft/2020-12): the schemas of [4.3](https://restep.wubytes.com/1/#describing).
+- [**RFC 3986**](https://www.rfc-editor.org/rfc/rfc3986): URIs. [**RFC 6570**](https://www.rfc-editor.org/rfc/rfc6570): URI templates.
+- [**RFC 6906**](https://www.rfc-editor.org/rfc/rfc6906): the `profile` link relation. [**RFC 8631**](https://www.rfc-editor.org/rfc/rfc8631): `service-desc` and `status`.
+- [**RFC 7240**](https://www.rfc-editor.org/rfc/rfc7240): `Prefer` and `Preference-Applied`.
+- [**RFC 6585**](https://www.rfc-editor.org/rfc/rfc6585): `428` and `429`. [**RFC 4918**](https://www.rfc-editor.org/rfc/rfc4918): `424`.
+- [**RFC 3339**](https://www.rfc-editor.org/rfc/rfc3339): dates and times.
+- [**RFC 9651**](https://www.rfc-editor.org/rfc/rfc9651): Structured Field Values for HTTP.
+- [**RFC 10008**](https://www.rfc-editor.org/rfc/rfc10008): the `QUERY` method.
+- [**RFC 9875**](https://www.rfc-editor.org/rfc/rfc9875): HTTP Cache Groups.
+- [**RFC 8620**](https://www.rfc-editor.org/rfc/rfc8620): JMAP, changes and back-references between operations.
+- [**RFC 9745**](https://www.rfc-editor.org/rfc/rfc9745) and [**RFC 8594**](https://www.rfc-editor.org/rfc/rfc8594): `Deprecation` and `Sunset`.
+- [**RFC 5829**](https://www.rfc-editor.org/rfc/rfc5829): the `successor-version` and `predecessor-version` relations.
+- [**RFC 9728**](https://www.rfc-editor.org/rfc/rfc9728): OAuth 2.0 Protected Resource Metadata. [**RFC 8414**](https://www.rfc-editor.org/rfc/rfc8414) and [OpenID Connect Discovery 1.0](https://openid.net/specs/openid-connect-discovery-1_0.html): authorization server metadata.
+- [**RFC 6750**](https://www.rfc-editor.org/rfc/rfc6750): Bearer tokens and their challenges. [**RFC 9449**](https://www.rfc-editor.org/rfc/rfc9449): DPoP. [**RFC 8707**](https://www.rfc-editor.org/rfc/rfc8707): resource indicators. [**RFC 9700**](https://www.rfc-editor.org/rfc/rfc9700): OAuth 2.0 security best current practice.
+- [**RFC 9727**](https://www.rfc-editor.org/rfc/rfc9727): `api-catalog`.
+- [**RFC 2119**](https://www.rfc-editor.org/rfc/rfc2119) and [**RFC 8174**](https://www.rfc-editor.org/rfc/rfc8174): requirement key words.
 - IETF draft for [the `Idempotency-Key` header](https://datatracker.ietf.org/doc/draft-ietf-httpapi-idempotency-key-header/) (revision 08).
-- Google’s [AIP-136](https://google.aip.dev/136), [AIP-158](https://google.aip.dev/158) and [AIP-160](https://google.aip.dev/160).
+- Google’s [**AIP-136**](https://google.aip.dev/136), [**AIP-158**](https://google.aip.dev/158) and [**AIP-160**](https://google.aip.dev/160).
 - [JSON:API 1.1](https://jsonapi.org/format/).
 - [Server-Sent Events](https://html.spec.whatwg.org/multipage/server-sent-events.html).

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// restep-check · Conformance checker for Restep 1 (core, query and writes profiles).
-// Node 18 or later, no dependencies.  Specification: https://restep.wubytes.com/1/  (draft 3)
+// restep-check · Conformance checker for Restep 1 (core, query and writes profiles, oauth extension).
+// Node 18 or later, no dependencies.  Specification: https://restep.wubytes.com/1/  (draft 4)
 //
 //   node restep-check.mjs https://api.example.com/ [options]
 //
@@ -14,13 +14,13 @@
 // validates documents against the JSON Schemas instead. That mode needs ajv, which the npm package
 // brings; the rest of the checker has no dependencies.
 
-const VERSION = '0.3.0';
+const VERSION = '0.4.0';
 const SPEC = 'https://restep.wubytes.com/1/';
 const ANCHORS = {
-  1.1: 'restep-versions', 1.2: 'dependencies', 3: 'data', 4.1: 'profile-header', 4.2: 'discovery',
+  1.1: 'restep-versions', 1.2: 'dependencies', 3: 'data', 4.1: 'profile-header', 4.2: 'discovery', 4.3: 'describing', 4.4: 'health',
   5.1: 'resources', 5.2: 'collections', 5.3: 'reserved', 5.4: 'errors', 5.5: 'versions',
   6.1: 'filters', 6.2: 'sorting', 6.3: 'fields', 6.4: 'pagination', 6.5: 'counts',
-  7.1: 'idempotency', 7.2: 'concurrency', 7.3: 'caching', 7.4: 'minimal', 9: 'sync', 11: 'conformance',
+  7.1: 'idempotency', 7.2: 'concurrency', 7.3: 'caching', 7.4: 'minimal', 9: 'sync', '10.5': 'oauth', 11: 'conformance',
 };
 const sectionUrl = (s) => `${SPEC}#${ANCHORS[s] ?? 'conformance'}`;
 
@@ -35,6 +35,8 @@ const CHECKS = {
   'passive.error.401': ['5.4', 'MUST', 'A 401 carries WWW-Authenticate'],
   'passive.error.405': ['5.1', 'MUST', 'A 405 carries Allow'],
   'passive.error.retry-after': ['5.4', 'SHOULD', '429 and 503 carry Retry-After'],
+  'passive.error.parameter': ['5.3', 'MUST', 'invalid_parameter and unsupported_parameter name the parameter in parameter'],
+  'passive.error.detail': ['5.4', 'SHOULD', 'Errors carry detail'],
   'passive.no-error-in-200': ['5.4', 'MUST', 'No problem object inside a 2xx'],
   'passive.profile-link': ['4.1', 'SHOULD', 'Responses carry a rel="profile" link per announced profile'],
   'passive.cache-control': ['7.3', 'MUST', 'Every GET or HEAD response, errors included, carries Cache-Control'],
@@ -51,6 +53,7 @@ const CHECKS = {
   'discovery.idempotency-ttl': ['7.1', 'SHOULD', 'writes declares idempotency.ttl, at least 86400'],
   'discovery.deprecations': ['5.5', 'MUST', 'Deprecations have a valid kind, a name and an RFC 3339 sunset'],
   'discovery.no-underscore-fields': ['3', 'MUST', 'No declared field starts with _'],
+  'discovery.describing': ['4.3', 'MUST', 'methods, descriptions, schemas and action declarations have the right shape'],
 
   'core.collection.shape': ['5.2', 'MUST', 'A collection responds {items, next} with next present'],
   'core.collection.traversal': ['5.2', 'MUST', 'Following next until null returns every item once'],
@@ -64,6 +67,10 @@ const CHECKS = {
   'core.head': ['5.1', 'MUST', 'HEAD works wherever GET does, with the same status and headers'],
   'core.method-not-allowed': ['5.1', 'MUST', 'An unsupported method gives 405 with Allow'],
   'core.put': ['5.1', 'MUST', 'PUT on an item gives 405'],
+  'core.methods.allow': ['4.3', 'MUST', 'Declared methods and item_methods agree with the Allow of a 405'],
+  'core.schema.create': ['4.3', 'MUST', 'A POST without a property the create schema requires gives 422'],
+  'core.schema.update': ['4.3', 'MUST', 'A PATCH with a member a closed update schema does not allow gives 422, even when it is null'],
+  'core.status': ['4.4', 'MUST', 'A declared status answers GET and HEAD with 200 or 503, with Cache-Control: no-store'],
   'core.reserved.get': ['5.3', 'MUST', 'An unimplemented reserved parameter on a collection gives unsupported_parameter'],
   'core.reserved.item': ['5.3', 'MUST', 'An unimplemented reserved parameter on an item gives unsupported_parameter'],
   'core.reserved.forms': ['5.3', 'MUST', 'An unsupported parameter form gives unsupported_parameter'],
@@ -122,20 +129,26 @@ const CHECKS = {
   'writes.idempotency.malformed': ['7.1', 'MUST', 'A malformed key gives 400 bad_request'],
   'writes.minimal': ['7.4', 'MUST', 'A minimal response carries Location and ETag'],
   'writes.minimal.applied': ['7.4', 'SHOULD', 'A minimal response carries Preference-Applied'],
+
+  'oauth.metadata': ['10.5', 'MUST', 'The metadata is at the URL RFC 9728 forms from the root, public JSON whose resource is the root, with an authorization server'],
+  'oauth.metadata.recommended': ['10.5', 'SHOULD', 'The metadata carries Cache-Control: public with max-age, and scopes_supported'],
+  'oauth.challenge': ['10.5', 'MUST', 'A 401 to the root carries the metadata URL in resource_metadata'],
+  'oauth.challenge.elsewhere': ['10.5', 'MUST', 'A 401 elsewhere does not point resource_metadata at the root’s metadata'],
 };
 const GROUPS = [['passive', 'Every response'], ['discovery', 'Discovery'], ['core', 'core'],
-  ['evolution', 'Evolution'], ['query', 'query'], ['writes', 'writes']];
+  ['evolution', 'Evolution'], ['query', 'query'], ['writes', 'writes'], ['oauth', 'oauth']];
 
 const NOT_CHECKED = [
   'Atomicity when the server fails between the effect and storing the response (7.1).',
   'That an Idempotency-Key lasts 24 hours (7.1).',
   'That GET and HEAD have no visible effects (5.1).',
-  'That a cursor is bound to the client that received it (6.4).',
-  'relations, sync and the extensions: a later version of this checker.',
+  'That a cursor is bound to the principal that received it (6.4).',
+  'The insufficient_scope challenge on a 403: it needs a token without some scope (10.5).',
+  'relations, sync and the extensions other than oauth: a later version of this checker.',
 ];
 
 // ── Options ───────────────────────────────────────────────────────────────────
-const HELP = `restep-check ${VERSION} · Restep 1 conformance checker (core, query, writes)
+const HELP = `restep-check ${VERSION} · Restep 1 conformance checker (core, query, writes, oauth)
 
 Usage: node restep-check.mjs <api-root> [options]
        npx restep-check --schema <discovery|problem> <file|url|->...
@@ -221,8 +234,12 @@ const withQuery = (url, pairs) => (pairs.length ? `${url}${url.includes('?') ? '
 const short = (url) => { const u = new URL(url); return u.origin === root.origin ? u.pathname + u.search : url; };
 const evidence = (res) => `${res.method} ${short(res.url)} → ${res.status}`;
 
-async function http(method, url, { headers = {}, json, body } = {}) {
-  const h = { accept: 'application/json', ...opts.headers, ...headers };
+// anonymous: without the --header credentials. passive: false skips the passive checks, for
+// documents that are not resources of the API (the oauth metadata, 10.5).
+async function http(method, url, { headers = {}, json, body, anonymous = false, passive = true } = {}) {
+  // 4.3: the credentials for the API go only to its origin, never to a schema or document elsewhere.
+  const sameOrigin = new URL(url).origin === root.origin;
+  const h = { accept: 'application/json', ...(anonymous || !sameOrigin ? {} : opts.headers), ...headers };
   let payload = body;
   if (json !== undefined) {
     payload = typeof json === 'string' ? json : JSON.stringify(json);
@@ -244,7 +261,7 @@ async function http(method, url, { headers = {}, json, body } = {}) {
       try { res.data = JSON.parse(text); } catch { res.bodyError = 'the body is not JSON'; }
     } catch { res.bodyError = 'the body is not UTF-8'; }
   }
-  checkResponse(res);
+  if (passive) checkResponse(res);
   return res;
 }
 
@@ -291,7 +308,7 @@ function checkResponse(res) {
   if (!noBody && res.size) observe('passive.json', res.bodyError, res);
   const read = res.method === 'GET' || res.method === 'HEAD';
   if (announced.includes('writes') && read) observe('passive.cache-control', res.headers.has('cache-control') ? null : 'no Cache-Control', res);
-  if (read && Object.keys(opts.headers).includes('authorization') && res.headers.has('cache-control')) {
+  if (read && Object.keys(res.reqHeaders).includes('authorization') && res.headers.has('cache-control')) {
     const cc = res.headers.get('cache-control').toLowerCase();
     observe('passive.cache-private', /\b(private|no-store)\b/.test(cc) ? null : `Cache-Control: ${cc}`, res);
   }
@@ -310,6 +327,9 @@ function checkResponse(res) {
     const missing = ['type', 'title', 'status', 'code'].filter((k) => d[k] === undefined);
     observe('passive.error.members', missing.length ? `missing ${missing.join(', ')}`
       : d.status !== res.status ? `status ${d.status} in a ${res.status} response` : null, res);
+    observe('passive.error.detail', typeof d.detail === 'string' && d.detail ? null : 'no detail', res);
+    if (d.code === 'invalid_parameter' || d.code === 'unsupported_parameter')
+      observe('passive.error.parameter', typeof d.parameter === 'string' && d.parameter ? null : `${d.code} without parameter`, res);
     if (typeof d.code === 'string') {
       const codes = expectedCodes(res.status);
       observe('passive.error.code', codes.includes(d.code) ? null : `code "${d.code}" for ${res.status}, expected ${codes.join(' or ')}`, res);
@@ -437,22 +457,27 @@ const rand = () => Math.random().toString(36).slice(2, 10);
 
 // ── Discovery ─────────────────────────────────────────────────────────────────
 const REQUIRES = { query: ['core'], writes: ['core'], relations: ['core'], sync: ['core', 'query'], actions: ['core'],
-  batch: ['core'], 'filter-expr': ['query'], 'query-method': ['query'] };
+  batch: ['core'], 'filter-expr': ['query'], 'query-method': ['query'], oauth: ['core'] };
 const KNOWN_PROFILES = ['core', 'query', 'writes', 'relations', 'sync'];
-const KNOWN_EXTENSIONS = ['actions', 'batch', 'filter-expr', 'query-method'];
-const DEPRECATION_KINDS = ['version', 'collection', 'field', 'filter', 'sort', 'relation', 'action'];
+const KNOWN_EXTENSIONS = ['actions', 'batch', 'filter-expr', 'query-method', 'oauth'];
+const DEPRECATION_KINDS = ['version', 'collection', 'field', 'filter', 'sort', 'relation', 'action', 'method', 'item_method'];
 
 async function discover() {
   let res = await http('GET', root.href);
   let doc = isObject(res.data) && typeof res.data.restep === 'string' ? res.data : null;
   if (!doc) {
-    const desc = linkTargets(res, 'service-desc')[0];
-    if (desc) {
-      res = await http('GET', new URL(desc, root).href);
-      doc = isObject(res.data) && typeof res.data.restep === 'string' ? res.data : null;
+    // 4.2: there may be several service-desc links (an OpenAPI document, say): the first discovery document wins.
+    // A candidate that fails, or that is another kind of document, is skipped without judging it.
+    for (const desc of linkTargets(res, 'service-desc')) {
+      const r = await (async () => http('GET', new URL(desc, root).href, { passive: false }))().catch(() => null);
+      if (r?.status >= 200 && r.status < 300 && isObject(r.data) && typeof r.data.restep === 'string') { checkResponse(r); res = r; doc = r.data; break; }
     }
   }
   const linked = linkTargets(res, 'profile').filter((u) => u.startsWith(SPEC)).map((u) => u.slice(SPEC.length));
+  if (!doc && res.status === 401) { // the root may ask for credentials (10.5): not a missing document
+    skip('discovery.present', null, 'the root answers 401: run with --header to check the API itself');
+    return { doc: null, res, linked };
+  }
   if (!doc) {
     const beyond = linked.filter((p) => p !== 'core');
     if (beyond.length) bad('discovery.present', null, `No discovery document, but the profile links announce ${beyond.join(', ')}`, res);
@@ -492,6 +517,8 @@ async function discover() {
     for (const d of Array.isArray(c.deprecations) ? c.deprecations : []) deprecations.push([name, d]);
   }
   for (const d of Array.isArray(doc.deprecations) ? doc.deprecations : []) deprecations.push([null, d]);
+  const describing = describingProblems(colls);
+  if (describing.checked) check('discovery.describing', null, describing.problems.join('; ') || null, res);
   check('discovery.types', null, typeProblems.join('; ') || null, res);
   check('discovery.ops', null, opProblems.join('; ') || null, res);
   check('discovery.no-underscore-fields', null, underscore.length ? `fields starting with _: ${underscore.join(', ')}` : null, res);
@@ -513,6 +540,77 @@ async function discover() {
   });
   if (deprecations.length) check('discovery.deprecations', null, depProblems.join('; ') || null, res);
   return { doc, res, deprecations };
+}
+
+// 4.3: the optional members that describe operations, when a collection declares any.
+const FOUR = ['GET', 'POST', 'PATCH', 'DELETE'];
+const isSchemaRef = (v) => isObject(v) || (typeof v === 'string' && /^(\/|[a-z][a-z0-9+.-]*:)/i.test(v));
+function describingProblems(colls) {
+  const problems = [];
+  let checked = false;
+  const desc = (where, v) => { if (v !== undefined) { checked = true; if (typeof v !== 'string' || !v) problems.push(`${where}: description is not a non-empty string`); } };
+  for (const [name, c] of Object.entries(colls)) {
+    if (!isObject(c)) continue;
+    desc(name, c.description);
+    for (const key of ['methods', 'item_methods']) {
+      if (c[key] === undefined) continue;
+      checked = true;
+      if (!Array.isArray(c[key]) || c[key].some((m) => !FOUR.includes(m)) || new Set(c[key]).size !== c[key].length)
+        problems.push(`${name}.${key}: ${JSON.stringify(c[key])} is not a list of distinct methods out of ${FOUR.join(', ')}`);
+    }
+    if (c.schemas !== undefined) {
+      checked = true;
+      if (!isObject(c.schemas)) problems.push(`${name}.schemas is not an object`);
+      else for (const [k, v] of Object.entries(c.schemas))
+        if (['item', 'create', 'update'].includes(k) && !isSchemaRef(v)) problems.push(`${name}.schemas.${k} is neither a schema object nor an absolute link`);
+    }
+    for (const [f, d] of Object.entries(isObject(c.filter) ? c.filter : {})) desc(`${name}.filter.${f}`, d?.description);
+    for (const [r, d] of Object.entries(isObject(c.relations) ? c.relations : {})) desc(`${name}.relations.${r}`, d?.description);
+    for (const [a, d] of Object.entries(isObject(c.actions) ? c.actions : {})) {
+      if (!isObject(d)) continue;
+      desc(`${name}.actions.${a}`, d.description);
+      if (d.method !== undefined) {
+        checked = true;
+        if (!['GET', 'POST'].includes(d.method)) problems.push(`${name}.actions.${a}: method ${JSON.stringify(d.method)}`);
+        else if (d.method === 'GET' && d.safe !== true) problems.push(`${name}.actions.${a}: GET on an action that is not safe`);
+        else if (d.method === 'GET' && d.input !== undefined) problems.push(`${name}.actions.${a}: a GET action with input`);
+      }
+      if (d.input !== undefined) { checked = true; if (!isSchemaRef(d.input)) problems.push(`${name}.actions.${a}.input is neither a schema object nor an absolute link`); }
+    }
+  }
+  return { checked, problems };
+}
+// 4.3: a declared list of methods agrees with the Allow of a 405 on the four methods Restep defines.
+function allowProblem(res, declared) {
+  if (res.status !== 405 || !res.headers.has('allow')) return null; // core.method-not-allowed and core.put report that
+  const allow = res.headers.get('allow').split(',').map((m) => m.trim().toUpperCase()).filter((m) => FOUR.includes(m));
+  const missing = declared.filter((m) => !allow.includes(m)), extra = allow.filter((m) => !declared.includes(m));
+  return missing.length || extra.length
+    ? `Allow: ${res.headers.get('allow')}, declared ${declared.join(', ')}${missing.length ? `; missing ${missing.join(', ')}` : ''}${extra.length ? `; not declared ${extra.join(', ')}` : ''}` : null;
+}
+// A schema of 4.3, inline or behind its link (absolute, as links in bodies are, section 3).
+async function loadSchema(v) {
+  if (isObject(v)) return v;
+  if (typeof v !== 'string') return null;
+  const res = await http('GET', new URL(v, root).href);
+  return isObject(res.data) ? res.data : null;
+}
+
+// 4.4: the service status is outside the API, so the passive checks (problem+json, profile links) skip it.
+async function checkStatus(link) {
+  if (typeof link !== 'string' || !/^(\/|[a-z][a-z0-9+.-]*:)/i.test(link)) return bad('core.status', null, `status ${JSON.stringify(link)} is not an absolute link`);
+  const url = new URL(link, root).href;
+  const problems = [], refused = [];
+  let last;
+  for (const method of ['GET', 'HEAD']) {
+    last = await http(method, url, { passive: false });
+    const cc = (last.headers.get('cache-control') ?? '').toLowerCase();
+    if ([401, 403, 429].includes(last.status)) refused.push(`${method} ${last.status}`);
+    else if (![200, 503].includes(last.status)) problems.push(`${method} got ${last.status}, expected 200 or 503`);
+    else if (!/\bno-store\b/.test(cc)) problems.push(`${method} Cache-Control: ${cc || '(none)'}`);
+  }
+  if (!problems.length && refused.length === 2) return skip('core.status', short(url), `refused: ${refused.join(', ')}`);
+  check('core.status', short(url), problems.join('; ') || null, last);
 }
 
 // ── core ──────────────────────────────────────────────────────────────────────
@@ -590,9 +688,11 @@ async function checkCollection(name, c, ctx) {
   check('core.not-found', name, problemMismatch(missing, 404, 'not_found'), missing);
   // 5.4: 404 and 405 come before 400. PATCH {} on a collection has no effect either way.
   const both = await http('GET', withQuery(missingUrl, [['filter[restep_check]', '1']]));
-  const wrongBoth = await http('PATCH', withQuery(url, [['filter[restep_check]', '1']]), { json: '{}', headers: { 'content-type': 'application/merge-patch+json' } });
-  const orderWhy = problemMismatch(both, 404, 'not_found') ?? (wrongBoth.status !== 405 ? `PATCH on a collection with a reserved parameter got ${wrongBoth.status}${wrongBoth.data?.code ? ` ${wrongBoth.data.code}` : ''}, expected 405` : null);
-  check('core.error-order', name, orderWhy, problemMismatch(both, 404, 'not_found') ? both : wrongBoth);
+  // Where discovery declares PATCH on the collection, only the 404 half applies.
+  const patchDeclared = Array.isArray(c.methods) && c.methods.includes('PATCH');
+  const wrongBoth = patchDeclared ? null : await http('PATCH', withQuery(url, [['filter[restep_check]', '1']]), { json: '{}', headers: { 'content-type': 'application/merge-patch+json' } });
+  const orderWhy = problemMismatch(both, 404, 'not_found') ?? (wrongBoth && wrongBoth.status !== 405 ? `PATCH on a collection with a reserved parameter got ${wrongBoth.status}${wrongBoth.data?.code ? ` ${wrongBoth.data.code}` : ''}, expected 405` : null);
+  check('core.error-order', name, orderWhy, problemMismatch(both, 404, 'not_found') || !wrongBoth ? both : wrongBoth);
 
   // 5.3: every unimplemented reserved parameter fails loudly.
   for (const [target, u, onItem] of [[name, url, false], [`${name}/{id}`, itemUrl, true]]) {
@@ -625,9 +725,14 @@ async function checkCollection(name, c, ctx) {
     check('core.reserved.forms', name, problems.join('; ') || null, problems.ev ?? last);
   }
 
-  const wrong = await http('PATCH', url, { json: '{}', headers: { 'content-type': 'application/merge-patch+json' } });
-  check('core.method-not-allowed', name, wrong.status !== 405 ? `PATCH on a collection got ${wrong.status}`
-    : !wrong.headers.has('allow') ? '405 without Allow' : null, wrong);
+  // PATCH {} on a collection: 5.1 defines no PATCH there, so it changes nothing. Not sent where discovery declares it.
+  if (Array.isArray(c.methods) && c.methods.includes('PATCH')) skip('core.method-not-allowed', name, 'methods declares PATCH on the collection');
+  else {
+    const wrong = await http('PATCH', url, { json: '{}', headers: { 'content-type': 'application/merge-patch+json' } });
+    check('core.method-not-allowed', name, wrong.status !== 405 ? `PATCH on a collection got ${wrong.status}`
+      : !wrong.headers.has('allow') ? '405 without Allow' : null, wrong);
+    if (Array.isArray(c.methods)) check('core.methods.allow', name, allowProblem(wrong, c.methods), wrong);
+  }
 
   // HEAD wherever GET works: same status and the headers that describe the representation.
   const heads = [[url, first], [itemUrl, itemRes], [missingUrl, missing]].filter(([u, r]) => u && r);
@@ -958,13 +1063,19 @@ function fixtureFor(s) {
 }
 let readFile;
 
+// An item this checker created, if it is on the API's origin: only then is it written to, and deleted at the end.
+function ownItem(where, name) {
+  if (!where) return null;
+  if (!where.startsWith(root.href)) { console.error(`  ${name}: ${where} is outside the API root; it will not be touched`); return null; }
+  if (!created.includes(where)) created.push(where);
+  return where;
+}
 async function create(s, body, headers = {}) {
   const res = await http('POST', s.url, { json: body, headers });
   if (res.status === 201) {
     const loc = res.headers.get('location');
     const where = loc ? new URL(loc, res.url).href : res.data?.id ? `${s.url.replace(/\/$/, '')}/${encodeURIComponent(res.data.id)}` : null;
-    if (where && !created.includes(where)) created.push(where);
-    res.where = where;
+    res.where = ownItem(where, s.name);
   }
   return res;
 }
@@ -990,8 +1101,21 @@ async function findMutation(itemUrl, item) {
   return null;
 }
 
+// What a --writes run checks on a collection: skipped together when the collection cannot be written.
+const WRITE_CHECKS = ['core.post', 'core.post.id', 'core.reserved.writes', 'core.put', 'core.schema.create', 'core.schema.update',
+  'core.patch', 'core.patch.json', 'core.patch.not-object', 'core.patch.id', 'core.patch.underscore', 'core.patch.merge', 'core.delete',
+  'writes.idempotency.replay', 'writes.idempotency.replayed-header', 'writes.idempotency.replay-precondition',
+  'writes.idempotency.json-equality', 'writes.idempotency.mismatch', 'writes.idempotency.malformed', 'writes.if-match.stale',
+  'writes.if-match.list', 'writes.if-match.race', 'writes.if-none-match.write', 'writes.write-ignores-underscore',
+  'writes.minimal', 'writes.minimal.applied'].filter((id) => CHECKS[id]);
 async function checkWrites(s) {
   const { name } = s;
+  const missing = [...(Array.isArray(s.c.methods) && !s.c.methods.includes('POST') ? ['POST'] : []),
+    ...(Array.isArray(s.c.item_methods) ? ['PATCH', 'DELETE'].filter((m) => !s.c.item_methods.includes(m)) : [])];
+  if (missing.length) {
+    for (const id of WRITE_CHECKS) skip(id, name, `the declared methods leave out ${missing.join(', ')} (4.3)`);
+    return;
+  }
   const body = fixtureFor(s);
   if (!body) {
     for (const id of ['core.post', 'writes.idempotency.replay'])
@@ -1022,7 +1146,7 @@ async function checkWrites(s) {
     return [res, why];
   };
   const [pPost] = await reservedWrite('POST', 'POST', s.url, { json: body });
-  if (pPost.status === 201 && pPost.headers.get('location')) created.push(new URL(pPost.headers.get('location'), pPost.url).href);
+  if (pPost.status === 201 && pPost.headers.get('location')) ownItem(new URL(pPost.headers.get('location'), pPost.url).href, name);
   const rp = await create(s, body);
   if (!rp.where) reservedProblems.push(`could not create a second item: ${evidence(rp)}`);
   else {
@@ -1032,8 +1156,36 @@ async function checkWrites(s) {
   }
   check('core.reserved.writes', name, reservedProblems.join('; ') || null, pPost);
 
+  // 4.3: a closed update schema rejects an unknown member, even a null one that would vanish when merged.
+  if (s.c.schemas?.update !== undefined) {
+    const schema = await loadSchema(s.c.schemas.update);
+    const member = 'restep_check_unknown';
+    const admitted = isObject(schema?.properties) && member in schema.properties
+      || Object.keys(isObject(schema?.patternProperties) ? schema.patternProperties : {}).some((p) => { try { return new RegExp(p, 'u').test(member); } catch { return true; } });
+    if (schema?.additionalProperties !== false || admitted) skip('core.schema.update', name, 'the update schema does not reject an unknown member');
+    else {
+      const res = await http('PATCH', item, { json: { [member]: null }, headers: { ...MERGE, 'if-match': '*' } });
+      check('core.schema.update', name, problemMismatch(res, 422, 'invalid'), res);
+    }
+  }
+
   const put = await http('PUT', item, { json: body });
   check('core.put', name, put.status !== 405 ? `got ${put.status}` : null, put);
+  if (Array.isArray(s.c.item_methods)) check('core.methods.allow', `${name} items`, allowProblem(put, s.c.item_methods), put);
+
+  // 4.3: a declared create schema is binding: leaving out a property it requires gives 422.
+  if (s.c.schemas?.create !== undefined) {
+    const schema = await loadSchema(s.c.schemas.create);
+    const required = Array.isArray(schema?.required) ? schema.required.filter((k) => k in body) : [];
+    if (!schema) bad('core.schema.create', name, 'the create schema could not be read');
+    else if (!required.length) skip('core.schema.create', name, 'the create schema requires nothing the test body carries');
+    else {
+      const { [required[0]]: _, ...without } = body;
+      const key = announced.includes('writes') ? { 'idempotency-key': `"restep-check-${rand()}"` } : {}; // a resource may require one (7.1)
+      const res = await create(s, without, key);
+      check('core.schema.create', name, problemMismatch(res, 422, 'invalid'), res, `without ${required[0]}`);
+    }
+  }
 
   const patch = await http('PATCH', item, { json: {}, headers: MERGE });
   check('core.patch', name, patch.status !== 200 ? `got ${patch.status}` : !isObject(patch.data) || patch.data.id === undefined
@@ -1189,6 +1341,44 @@ async function checkEvolution(disc, ctx) {
   if (v >= 2) check('evolution.version-links', null, linkTargets(disc.res, 'predecessor-version').length ? null : 'no Link with rel="predecessor-version"', disc.res);
 }
 
+// ── oauth (10.5) ──────────────────────────────────────────────────────────────
+// RFC 9728, 3.1: the well-known suffix goes between the host and the root's path.
+const metadataUrl = () => new URL(`/.well-known/oauth-protected-resource${rootPath === '/' ? '' : rootPath}`, root.origin).href;
+// The whole parameter name: x-resource_metadata is not it.
+const resourceMetadata = (res) => [...(res.headers.get('www-authenticate') ?? '').matchAll(/(?:^|[\s,])resource_metadata\s*=\s*"([^"]*)"/gi)].map((m) => m[1]);
+// RFC 8414, 2: an issuer is an https URL without query or fragment.
+const isIssuer = (i) => { try { return typeof i === 'string' && !/[?#]/.test(i) && new URL(i).protocol === 'https:'; } catch { return false; } };
+
+async function checkOauth(ctx) {
+  const url = metadataUrl();
+  const res = await http('GET', url, { anonymous: true, passive: false });
+  const d = res.data;
+  const issuers = Array.isArray(d?.authorization_servers) ? d.authorization_servers : [];
+  check('oauth.metadata', short(url), res.status !== 200 ? `status ${res.status} without credentials`
+    : mediaType(res) !== 'application/json' ? `Content-Type: ${mediaType(res) || '(none)'}`
+      : !isObject(d) ? 'the body is not a JSON object'
+        : d.resource !== root.href ? `resource is ${JSON.stringify(d.resource)}, expected exactly ${root.href}`
+          : !issuers.length ? 'authorization_servers does not list an issuer'
+            : !issuers.every(isIssuer) ? `authorization_servers has something that is not an issuer (an https URL): ${JSON.stringify(issuers)}` : null, res);
+  if (res.status !== 200 || !isObject(d)) skip('oauth.metadata.recommended', short(url), 'the metadata is not there');
+  else {
+    const cc = (res.headers.get('cache-control') ?? '').toLowerCase();
+    check('oauth.metadata.recommended', short(url), !/\bpublic\b/.test(cc) || !/\bmax-age=\d+/.test(cc) ? `Cache-Control: ${cc || '(none)'}`
+      : !Array.isArray(d.scopes_supported) ? 'no scopes_supported' : null, res);
+  }
+  const rootRes = await http('GET', root.href, { anonymous: true });
+  if (rootRes.status !== 401) skip('oauth.challenge', null, `the root answers ${rootRes.status} without credentials`);
+  else check('oauth.challenge', null, resourceMetadata(rootRes).includes(url) ? null
+    : `WWW-Authenticate does not carry resource_metadata="${url}"`, rootRes);
+  if (!ctx.collections.length) skip('oauth.challenge.elsewhere', null, 'no collections to ask');
+  for (const s of ctx.collections) {
+    const other = await http('GET', s.url, { anonymous: true });
+    if (other.status !== 401) skip('oauth.challenge.elsewhere', s.name, `the collection answers ${other.status} without credentials`);
+    else check('oauth.challenge.elsewhere', s.name, resourceMetadata(other).includes(url)
+      ? 'resource_metadata points at the root’s metadata, whose resource is not this URL (RFC 9728, 3.3)' : null, other);
+  }
+}
+
 // ── Output ────────────────────────────────────────────────────────────────────
 function finishPassive() {
   for (const id of Object.keys(CHECKS).filter((k) => k.startsWith('passive.'))) {
@@ -1261,7 +1451,8 @@ async function main() {
   const disc = await discover();
   const doc = disc.doc;
   const profiles = doc ? ['core', ...(doc.profiles ?? []).filter((p) => p !== 'core')] : ['core'];
-  const extensions = doc?.extensions ?? [];
+  // Without credentials the profile links of a 401 can still announce oauth, which needs none.
+  const extensions = doc?.extensions ?? (disc.linked ?? []).filter((p) => p === 'oauth');
   announced = [...profiles, ...extensions];
 
   let decls = Object.entries(isObject(doc?.collections) ? doc.collections : {});
@@ -1283,7 +1474,9 @@ async function main() {
   }
   if (opts.writes) for (const s of ctx.collections) await checkWrites(s);
   else if (ctx.collections.length) console.error('Read only: run with --writes to also check POST, PATCH, DELETE, If-Match and Idempotency-Key.');
+  if (doc?.status !== undefined) await checkStatus(doc.status);
   if (doc) await checkEvolution(disc, ctx);
+  if (extensions.includes('oauth')) await checkOauth(ctx);
   finishPassive();
 
   const meta = { root: root.href, profiles, extensions, writes: opts.writes, version: VERSION, spec: SPEC };
@@ -1343,8 +1536,9 @@ async function schemaMain(argv) {
 // Global so the cleanup runs whatever happens.
 async function cleanup() {
   for (const url of created.splice(0)) {
-    try { await fetch(url, { method: 'DELETE', headers: opts.headers, signal: AbortSignal.timeout(opts.timeout) }); }
-    catch { console.error(`Could not delete ${url}: remove it by hand.`); }
+    // http() sends the credentials only to the API's origin; If-Match: * satisfies a resource that requires it (7.2).
+    const res = await http('DELETE', url, { passive: false, headers: { 'if-match': '*' } }).catch(() => null);
+    if (!res || (res.status >= 300 && res.status !== 404 && res.status !== 410)) console.error(`Could not delete ${url}${res ? ` (${res.status})` : ''}: remove it by hand.`);
   }
 }
 

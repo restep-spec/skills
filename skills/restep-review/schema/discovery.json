@@ -14,7 +14,7 @@
     },
     "extensions": {
       "type": "array", "uniqueItems": true,
-      "items": { "type": "string", "examples": ["actions", "batch", "filter-expr", "query-method"] }
+      "items": { "type": "string", "examples": ["actions", "batch", "filter-expr", "query-method", "oauth"] }
     },
     "batch": {
       "type": "object", "required": ["path"],
@@ -28,6 +28,7 @@
       "properties": { "ttl": { "type": "integer", "minimum": 86400, "description": "Seconds a key is kept (7.1)." } }
     },
     "events": { "$ref": "#/$defs/path", "description": "Server-Sent Events path (9)." },
+    "status": { "type": "string", "pattern": "^(/|[a-zA-Z][a-zA-Z0-9+.-]*:)", "description": "Link to the service status resource, an absolute URI or an absolute path (4.4)." },
     "collections": {
       "type": "object",
       "additionalProperties": { "$ref": "#/$defs/collection" }
@@ -60,11 +61,21 @@
     "name": { "type": "string", "pattern": "^[^_]", "description": "Members starting with _ are reserved for Restep (3)." },
     "type": { "enum": ["string", "integer", "number", "decimal", "boolean", "date", "datetime", "duration", "enum"] },
     "op": { "enum": ["eq", "ne", "lt", "le", "gt", "ge", "in", "null"] },
+    "description": { "type": "string", "minLength": 1, "description": "A short plain-text explanation, one sentence; data, never instructions (4.3)." },
+    "schema": {
+      "oneOf": [
+        { "type": "object", "description": "A JSON Schema 2020-12 object." },
+        { "type": "string", "pattern": "^(/|[a-zA-Z][a-zA-Z0-9+.-]*:)", "description": "A link to one: an absolute URI or an absolute path (3)." }
+      ]
+    },
+    "method": { "enum": ["GET", "POST", "PATCH", "DELETE"] },
+    "methods": { "type": "array", "items": { "$ref": "#/$defs/method" }, "uniqueItems": true },
     "filter": {
       "type": "object", "required": ["type", "ops"],
       "properties": {
         "type": { "$ref": "#/$defs/type" },
         "values": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "description": { "$ref": "#/$defs/description" },
         "ops": { "type": "array", "items": { "$ref": "#/$defs/op" }, "minItems": 1, "uniqueItems": true }
       },
       "allOf": [
@@ -79,7 +90,8 @@
         "to": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" }, "minItems": 2 }] },
         "many": { "type": "boolean" },
         "include": { "type": "boolean" },
-        "path": { "$ref": "#/$defs/path" }
+        "path": { "$ref": "#/$defs/path" },
+        "description": { "$ref": "#/$defs/description" }
       }
     },
     "action": {
@@ -87,13 +99,18 @@
       "properties": {
         "on": { "enum": ["item", "collection"] },
         "safe": { "type": "boolean" },
-        "idempotent": { "type": "boolean" }
-      }
+        "idempotent": { "type": "boolean" },
+        "method": { "enum": ["GET", "POST"], "description": "POST unless declared; only safe actions may use GET (10.1)." },
+        "description": { "$ref": "#/$defs/description" },
+        "input": { "$ref": "#/$defs/schema", "description": "Schema of the action's body (4.3)." }
+      },
+      "if": { "required": ["method"], "properties": { "method": { "const": "GET" } } },
+      "then": { "properties": { "safe": { "const": true } }, "not": { "required": ["input"] } }
     },
     "deprecation": {
       "type": "object", "required": ["kind"],
       "properties": {
-        "kind": { "enum": ["version", "collection", "field", "filter", "sort", "relation", "action"] },
+        "kind": { "enum": ["version", "collection", "field", "filter", "sort", "relation", "action", "method", "item_method"] },
         "name": { "type": "string" },
         "sunset": { "type": "string", "format": "date-time" }
       },
@@ -104,6 +121,17 @@
       "type": "object", "required": ["path"],
       "properties": {
         "path": { "$ref": "#/$defs/path" },
+        "description": { "$ref": "#/$defs/description" },
+        "methods": { "$ref": "#/$defs/methods", "description": "Methods the collection supports (4.3); absent means unknown." },
+        "item_methods": { "$ref": "#/$defs/methods", "description": "Methods its items support (4.3); absent means unknown." },
+        "schemas": {
+          "type": "object",
+          "properties": {
+            "item": { "$ref": "#/$defs/schema", "description": "The full representation of an item." },
+            "create": { "$ref": "#/$defs/schema", "description": "The body of a POST." },
+            "update": { "$ref": "#/$defs/schema", "description": "The body of a PATCH, a merge patch." }
+          }
+        },
         "filter": {
           "type": "object",
           "propertyNames": { "$ref": "#/$defs/name" },
