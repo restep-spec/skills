@@ -7,8 +7,8 @@ Agent skills for [Restep](https://restep.wubytes.com/), a profile for HTTP JSON 
 | [`restep-design`](skills/restep-design/SKILL.md) | Build an API, or change one, so it follows Restep, then verify it with `restep-check` |
 | [`restep-review`](skills/restep-review/SKILL.md) | Review an API change, an endpoint or an OpenAPI document against Restep |
 
-Each skill folder is self-contained: it carries the specification (`spec.md`), the checker
-(`restep-check.mjs`) and the JSON schemas, so it works offline.
+Each skill folder carries the specification (`spec.md`) and the JSON schemas, so the agent can read
+them offline. The checker runs from npm, with `npx restep-check` (Node 18 or later).
 
 ## Install
 

@@ -14,9 +14,9 @@ The specification is `spec.md`, next to this file. It is the source of truth: wh
 1. **Map the API.** List every collection and item resource with its methods, and every query parameter it already takes. Done when each resource is on the list.
 2. **Pick the profiles.** `core` always. Add a profile when the user asks for it or the API already does what it covers: filtering or paginating → `query`; retries or concurrent edits → `writes`; `Cache-Control`, `ETag` and `304` on reads → `cache`; nested or linked resources → `relations`; clients keeping a local copy → `sync`; values an item inherits from another → the `inherit` extension. Respect the dependencies (`sync` needs `query`), and tell the user when a choice is experimental. Done when the list is decided and you have read, in full, sections 3 to 5 of `spec.md` and the section of each chosen profile.
 3. **Build `core`**, then each chosen profile, from its section. The rules below are the ones most often missed; they are a checklist, not a summary.
-4. **Verify** with `restep-check.mjs`, next to this file, against a local server with test data:
+4. **Verify** with `restep-check`, from npm (Node 18 or later), against a local server with test data:
    ```bash
-   node restep-check.mjs http://localhost:3000/ --writes
+   npx restep-check http://localhost:3000/ --writes
    ```
    It finds the collections in the discovery document and creates items by copying one it reads; if that copy fails validation, pass a valid body with `--fixture <collection>=<json or @file>`. Fix every `FAIL`. Fix each `WARN`, or tell the user why it stays. Done when it exits 0 and you have told the user which `WARN` and `SKIP` results remain and why.
 
