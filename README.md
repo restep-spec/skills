@@ -26,10 +26,6 @@ Claude Code, as a plugin:
 /plugin install restep@restep
 ```
 
-Or by hand: download [restep-design.zip](https://restep.wubytes.com/skills/restep-design.zip) or
-[restep-review.zip](https://restep.wubytes.com/skills/restep-review.zip) and unzip it in your
-agent's skills folder (for Claude Code, `~/.claude/skills/`).
-
 ## Source
 
 This repository is generated from the Restep site; do not edit it by hand. The specification is
