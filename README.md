@@ -1,6 +1,6 @@
 # Restep skills
 
-Agent skills for [Restep](https://restep.wubytes.com/), a profile for HTTP JSON APIs at REST level 2½.
+Agent skills for [Restep](https://w3id.org/restep/), a profile for HTTP JSON APIs at REST level 2½.
 
 | Skill | Use it to |
 |---|---|
@@ -29,7 +29,7 @@ Claude Code, as a plugin:
 ## Source
 
 This repository is generated from the Restep site; do not edit it by hand. The specification is
-at <https://restep.wubytes.com/1/spec.md>.
+at <https://w3id.org/restep/1/spec.md>.
 
 ## License
 
