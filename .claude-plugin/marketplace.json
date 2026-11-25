@@ -9,7 +9,7 @@
       "name": "restep",
       "source": "./",
       "description": "Skills to build and review HTTP JSON APIs that follow Restep (REST level 2½).",
-      "version": "1.3.0"
+      "version": "1.4.0"
     }
   ]
 }
